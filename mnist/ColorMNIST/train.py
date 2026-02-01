@@ -23,7 +23,7 @@ import score_funcs
 from score_funcs import gradient_sum,eg_scores_2d,cdep
 import cd
 import random
-model_path = "../../models/ColorMNIST_test"
+model_path = os.path.join(_repo_root, "models", "ColorMNIST_test")
 import os
 os.makedirs(model_path, exist_ok= True)
 torch.backends.cudnn.deterministic = True #this makes results reproducible. 
@@ -70,7 +70,7 @@ device = torch.device("cuda" if use_cuda else "cpu")
 
 kwargs = {'num_workers': 0, 'pin_memory': True,  'worker_init_fn':np.random.seed(12)} if use_cuda else {}
 
-x_numpy_train = np.load(oj("../../data/ColorMNIST",   "train_x.npy"))
+x_numpy_train = np.load(oj(_repo_root, "data", "ColorMNIST", "train_x.npy"))
 prob = (x_numpy_train.sum(axis = 1) > 0.0).mean(axis = 0).reshape(-1)
 prob /=prob.sum()
 mean = x_numpy_train.mean(axis = (0,2,3))
@@ -78,10 +78,10 @@ std = x_numpy_train.std(axis = (0,2,3))
 #x_numpy /= std[None, :, None, None,]
 #x_numpy -= mean[None, :, None, None,]
 def load_dataset(name):
-    x_numpy = np.load(oj("../../data/ColorMNIST", name + "_x.npy"))
+    x_numpy = np.load(oj(_repo_root, "data", "ColorMNIST", name + "_x.npy"))
     x_numpy -= mean[None, :, None, None,]
     x_numpy /= std[None, :, None, None,]
-    y_numpy = np.load(oj("../../data/ColorMNIST", name +"_y.npy"))
+    y_numpy = np.load(oj(_repo_root, "data", "ColorMNIST", name + "_y.npy"))
     x_tensor = torch.Tensor(x_numpy)
     y_tensor = torch.Tensor(y_numpy).type(torch.int64)
     dataset = utils.TensorDataset(x_tensor,y_tensor) 

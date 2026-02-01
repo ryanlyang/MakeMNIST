@@ -87,7 +87,7 @@ parser.add_argument('--grad_method', type=int, default=0, metavar='N',
 # parser.add_argument('--gradient_method', type=string, default="CD", metavar='N',
                     # help='what method is used')
 args = parser.parse_args()
-model_path = "../../models/DecoyMNIST"
+model_path = os.path.join(_repo_root, "models", "DecoyMNIST")
 
 s = S(args.epochs)
 use_cuda = not args.no_cuda and torch.cuda.is_available()
@@ -107,8 +107,8 @@ device = torch.device("cuda" if use_cuda else "cpu")
 
 kwargs = {'num_workers': 1, 'pin_memory': True} if use_cuda else {}
 
-train_x_tensor = torch.Tensor(np.load(oj("../../data/ColorMNIST", "train_x_decoy.npy")))
-train_y_tensor = torch.Tensor(np.load(oj("../../data/ColorMNIST", "train_y.npy"))).type(torch.int64)
+train_x_tensor = torch.Tensor(np.load(oj(_repo_root, "data", "ColorMNIST", "train_x_decoy.npy")))
+train_y_tensor = torch.Tensor(np.load(oj(_repo_root, "data", "ColorMNIST", "train_y.npy"))).type(torch.int64)
 complete_dataset = utils.TensorDataset(train_x_tensor,train_y_tensor) # create your datset
 
 
@@ -121,8 +121,8 @@ train_loader = utils.DataLoader(train_dataset,
 test_loader = utils.DataLoader(test_dataset,
     batch_size=args.batch_size, shuffle=True, **kwargs) # create your dataloader
 
-test_x_tensor = torch.Tensor(np.load(oj("../../data/ColorMNIST", "test_x_decoy.npy")))
-test_y_tensor = torch.Tensor(np.load(oj("../../data/ColorMNIST", "test_y.npy"))).type(torch.int64)
+test_x_tensor = torch.Tensor(np.load(oj(_repo_root, "data", "ColorMNIST", "test_x_decoy.npy")))
+test_y_tensor = torch.Tensor(np.load(oj(_repo_root, "data", "ColorMNIST", "test_y.npy"))).type(torch.int64)
 val_dataset = utils.TensorDataset(test_x_tensor,test_y_tensor) # create your datset
 val_loader = utils.DataLoader(val_dataset,
         batch_size=args.test_batch_size, shuffle=True, **kwargs) # create your dataloader
