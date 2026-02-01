@@ -15,7 +15,11 @@ import pickle as pkl
 from copy import deepcopy
 from params_save import S # class to save objects
 import time
-sys.path.append('../.')
+# Ensure repo root and src are importable regardless of cwd
+_here = os.path.dirname(os.path.abspath(__file__))
+_repo_root = os.path.abspath(os.path.join(_here, "..", ".."))
+sys.path.append(_repo_root)
+sys.path.append(os.path.join(_repo_root, "src"))
 import cd
 from score_funcs import gradient_sum, eg_scores_2d
 def save(p,  out_name):

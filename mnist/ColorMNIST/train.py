@@ -15,7 +15,10 @@ import sys
 import pickle as pkl
 from copy import deepcopy
 from params_save import S # class to save objects
-sys.path.append('../../src')
+# Ensure src is importable regardless of cwd
+_here = os.path.dirname(os.path.abspath(__file__))
+_repo_root = os.path.abspath(os.path.join(_here, "..", ".."))
+sys.path.append(os.path.join(_repo_root, "src"))
 import score_funcs
 from score_funcs import gradient_sum,eg_scores_2d,cdep
 import cd
