@@ -113,9 +113,9 @@ kwargs = {'num_workers': 1, 'pin_memory': True} if use_cuda else {}
 
 if args.use_png:
     from torchvision.datasets import ImageFolder
-    from torchvision.transforms import Compose, ToTensor, Lambda
+    from torchvision.transforms import Compose, ToTensor, Lambda, Grayscale
     png_root = args.png_root or oj(_repo_root, "data", "DecoyMNIST_png")
-    transform = Compose([ToTensor(), Lambda(lambda x: x * 2.0 - 1.0)])
+    transform = Compose([Grayscale(num_output_channels=1), ToTensor(), Lambda(lambda x: x * 2.0 - 1.0)])
     complete_dataset = ImageFolder(oj(png_root, "train"), transform=transform)
 else:
     train_x_tensor = torch.Tensor(np.load(oj(_repo_root, "data", "ColorMNIST", "train_x_decoy.npy")))
