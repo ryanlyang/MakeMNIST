@@ -13,7 +13,7 @@
 set -Eeuo pipefail
 mkdir -p /home/ryreu/guided_cnn/logsMNIST
 
-REPO_ROOT="/home/ryreu/guided_cnn/MNIST_AGAIN/deep-explanation-penalization"
+REPO_ROOT="/home/ryreu/guided_cnn/MNIST_AGAIN/MakeMNIST"
 CONDA_ENV="learntolook"
 
 DATA_PATH="/home/ryreu/guided_cnn/MNIST_AGAIN/MakeMNIST/data/ColorMNIST_png"
