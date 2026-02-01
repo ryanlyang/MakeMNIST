@@ -12,7 +12,7 @@
 
 set -Eeuo pipefail
 
-REPO_ROOT="/home/ryreu/guided_cnn/MNIST_AGAIN/LearningToLook"
+REPO_ROOT="/home/ryreu/guided_cnn/MNIST_AGAIN/MakeMNIST"
 CONDA_ENV="learntolook"
 LOG_DIR="/home/ryreu/guided_cnn/logsMNIST"
 
