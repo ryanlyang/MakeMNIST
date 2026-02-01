@@ -171,7 +171,7 @@ def train(args, model, device, train_loader, optimizer, epoch, regularizer_rate,
    
 
 
-def test(args, model, device, dataset_loader, is_test = False):
+def test(args, model, device, dataset_loader, is_test = False, epoch=None):
     model.eval()
     test_loss = 0
     correct = 0
@@ -189,16 +189,26 @@ def test(args, model, device, dataset_loader, is_test = False):
     if is_test:
         s.acc_test = 100. * correct / len(dataset_loader.dataset)
         s.loss_test = test_loss
-        print('\Test set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
-        test_loss, correct, len(dataset_loader.dataset),
-        100. * correct / len(dataset_loader.dataset)))
+        if epoch is not None:
+            print('Epoch {} Test set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
+            epoch, test_loss, correct, len(dataset_loader.dataset),
+            100. * correct / len(dataset_loader.dataset)))
+        else:
+            print('\Test set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
+            test_loss, correct, len(dataset_loader.dataset),
+            100. * correct / len(dataset_loader.dataset)))
     else:
         
         s.losses_dev.append(test_loss)
         s.accs_dev.append(100. * correct / len(dataset_loader.dataset))
-        print('\nVal set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
-        test_loss, correct, len(dataset_loader.dataset),
-        100. * correct / len(dataset_loader.dataset)))
+        if epoch is not None:
+            print('Epoch {} Val set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
+            epoch, test_loss, correct, len(dataset_loader.dataset),
+            100. * correct / len(dataset_loader.dataset)))
+        else:
+            print('\nVal set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
+            test_loss, correct, len(dataset_loader.dataset),
+            100. * correct / len(dataset_loader.dataset)))
     return test_loss
 
 
@@ -206,25 +216,17 @@ def test(args, model, device, dataset_loader, is_test = False):
 
 best_model_weights = None
 best_test_loss = 100000
-patience = 0
-cur_patience = 0
 
 for epoch in range(1, args.epochs + 1):
-
     train(args, model, device, train_loader, optimizer, epoch, regularizer_rate)
-    test_loss = test(args, model, device, val_loader)
+    test_loss = test(args, model, device, val_loader, epoch=epoch)
     if test_loss < best_test_loss:
-        
-        cur_patience = 0
         best_test_loss = test_loss
         best_model_weights = deepcopy(model.state_dict())
-    else:
-        cur_patience +=1
-        if cur_patience > patience:
-            break
-model.load_state_dict(best_model_weights)
+if best_model_weights is not None:
+    model.load_state_dict(best_model_weights)
 s.dataset= "Color"      
-test(args, model, device, test_loader, is_test = True)
+test(args, model, device, test_loader, is_test = True, epoch=args.epochs)
 if args.grad_method ==0:
     s.method = "CDEP"
 elif args.grad_method ==2:

@@ -196,7 +196,6 @@ def train(args, model, device, train_loader, optimizer, epoch, regularizer_rate,
             add_loss = torch.zeros(1,)
             loss.backward()
 
-        print(torch.cuda.max_memory_allocated(0)/np.power(10,9))
         optimizer.step()
         
         
