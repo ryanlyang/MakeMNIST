@@ -1,20 +1,20 @@
 #!/bin/bash -l
-#SBATCH --account=REPLACE_ACCOUNT
-#SBATCH --partition=REPLACE_PARTITION
+#SBATCH --account=reu-aisocial
+#SBATCH --partition=tier3
 #SBATCH --gres=gpu:1
 #SBATCH --time=1-00:00:00
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
-#SBATCH --output=/path/to/logs/mnist_train_%j.out
-#SBATCH --error=/path/to/logs/mnist_train_%j.err
+#SBATCH --output=/home/ryreu/guided_cnn/logsMNIST/vanilla_cnn_%j.out
+#SBATCH --error=/home/ryreu/guided_cnn/logsMNIST/vanilla_cnn_%j.err
 #SBATCH --signal=TERM@120
 
 set -Eeuo pipefail
 
-REPO_ROOT="/home/ryan/ComputerScience/LearnToLook/MNIST_again/deep-explanation-penalization"
-CONDA_ENV="py38"
-LOG_DIR="/path/to/logs"
+REPO_ROOT="/home/ryreu/guided_cnn/MNIST_AGAIN/MakeMNIST"
+CONDA_ENV="learntolook"
+LOG_DIR="/home/ryreu/guided_cnn/logsMNIST"
 
 mkdir -p "${LOG_DIR}"
 
