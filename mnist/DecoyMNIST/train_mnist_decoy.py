@@ -108,7 +108,10 @@ device = torch.device("cuda" if use_cuda else "cpu")
 kwargs = {'num_workers': 1, 'pin_memory': True} if use_cuda else {}
 
 train_x_tensor = torch.Tensor(np.load(oj(_repo_root, "data", "ColorMNIST", "train_x_decoy.npy")))
-train_y_tensor = torch.Tensor(np.load(oj(_repo_root, "data", "ColorMNIST", "train_y.npy"))).type(torch.int64)
+# Use full MNIST labels to match the 60k decoy training images
+_mnist_root = oj(_repo_root, "data")
+_mnist_train = datasets.MNIST(root=_mnist_root, train=True, download=False, transform=None)
+train_y_tensor = torch.Tensor(np.asarray(_mnist_train.targets)).type(torch.int64)
 complete_dataset = utils.TensorDataset(train_x_tensor,train_y_tensor) # create your datset
 
 
@@ -122,7 +125,8 @@ test_loader = utils.DataLoader(test_dataset,
     batch_size=args.batch_size, shuffle=True, **kwargs) # create your dataloader
 
 test_x_tensor = torch.Tensor(np.load(oj(_repo_root, "data", "ColorMNIST", "test_x_decoy.npy")))
-test_y_tensor = torch.Tensor(np.load(oj(_repo_root, "data", "ColorMNIST", "test_y.npy"))).type(torch.int64)
+_mnist_test = datasets.MNIST(root=_mnist_root, train=False, download=False, transform=None)
+test_y_tensor = torch.Tensor(np.asarray(_mnist_test.targets)).type(torch.int64)
 val_dataset = utils.TensorDataset(test_x_tensor,test_y_tensor) # create your datset
 val_loader = utils.DataLoader(val_dataset,
         batch_size=args.test_batch_size, shuffle=True, **kwargs) # create your dataloader
