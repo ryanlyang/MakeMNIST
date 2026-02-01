@@ -6,19 +6,19 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
-#SBATCH --output=/home/ryreu/guided_cnn/logsMNIST/vanilla_cnn_%j.out
-#SBATCH --error=/home/ryreu/guided_cnn/logsMNIST/vanilla_cnn_%j.err
+#SBATCH --output=/home/ryreu/guided_cnn/logsMNIST/mnist_train_%j.out
+#SBATCH --error=/home/ryreu/guided_cnn/logsMNIST/mnist_train_%j.err
 #SBATCH --signal=TERM@120
 
 set -Eeuo pipefail
 
-REPO_ROOT="/home/ryreu/guided_cnn/MNIST_AGAIN/MakeMNIST"
+REPO_ROOT="/home/ryreu/guided_cnn/MNIST_AGAIN/LearningToLook"
 CONDA_ENV="learntolook"
 LOG_DIR="/home/ryreu/guided_cnn/logsMNIST"
 
 mkdir -p "${LOG_DIR}"
 
-source ~/miniforge3/etc/profile.d/conda.sh
+source ~/miniconda3/etc/profile.d/conda.sh
 conda activate "${CONDA_ENV}"
 
 export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:-1}"
