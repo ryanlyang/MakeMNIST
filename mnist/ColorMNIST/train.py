@@ -54,6 +54,10 @@ parser.add_argument('--regularizer_rate', type=float, default=0.0, metavar='N',
                     help='how heavy to regularize lower order interaction (AKA color)')
 parser.add_argument('--grad_method', type=int, default=0, metavar='N',
                     help='which gradient method is used - Grad or CD')
+parser.add_argument('--use-png', action='store_true', default=False,
+                    help='load data from PNG folders instead of .npy')
+parser.add_argument('--png-root', type=str, default=None,
+                    help='root folder for PNGs (default: data/ColorMNIST_png)')
 
 
 args = parser.parse_args()
@@ -70,28 +74,70 @@ device = torch.device("cuda" if use_cuda else "cpu")
 
 kwargs = {'num_workers': 0, 'pin_memory': True,  'worker_init_fn':np.random.seed(12)} if use_cuda else {}
 
-x_numpy_train = np.load(oj(_repo_root, "data", "ColorMNIST", "train_x.npy"))
-prob = (x_numpy_train.sum(axis = 1) > 0.0).mean(axis = 0).reshape(-1)
-prob /=prob.sum()
-mean = x_numpy_train.mean(axis = (0,2,3))
-std = x_numpy_train.std(axis = (0,2,3)) 
-#x_numpy /= std[None, :, None, None,]
-#x_numpy -= mean[None, :, None, None,]
-def load_dataset(name):
+def _compute_mean_std(dataset, batch_size=512):
+    loader = utils.DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=0)
+    total = 0
+    sum_ = torch.zeros(3)
+    sumsq = torch.zeros(3)
+    for data, _ in loader:
+        # data shape: B,C,H,W
+        b = data.size(0)
+        total += b * data.size(2) * data.size(3)
+        sum_ += data.sum(dim=(0, 2, 3))
+        sumsq += (data ** 2).sum(dim=(0, 2, 3))
+    mean = sum_ / total
+    std = torch.sqrt(sumsq / total - mean ** 2)
+    return mean, std
+
+
+def load_dataset_from_npy(name):
     x_numpy = np.load(oj(_repo_root, "data", "ColorMNIST", name + "_x.npy"))
-    x_numpy -= mean[None, :, None, None,]
-    x_numpy /= std[None, :, None, None,]
     y_numpy = np.load(oj(_repo_root, "data", "ColorMNIST", name + "_y.npy"))
     x_tensor = torch.Tensor(x_numpy)
     y_tensor = torch.Tensor(y_numpy).type(torch.int64)
-    dataset = utils.TensorDataset(x_tensor,y_tensor) 
+    return utils.TensorDataset(x_tensor, y_tensor)
 
-    return dataset
-    
 
-train_dataset = load_dataset("train")
-val_dataset = load_dataset("val")
-test_dataset = load_dataset("test")
+if args.use_png:
+    from torchvision.datasets import ImageFolder
+    from torchvision.transforms import Compose, ToTensor, Lambda, Normalize
+
+    png_root = args.png_root or oj(_repo_root, "data", "ColorMNIST_png")
+    base_transform = Compose([ToTensor(), Lambda(lambda x: x * 255.0)])
+    train_dataset_raw = ImageFolder(oj(png_root, "train"), transform=base_transform)
+    val_dataset_raw = ImageFolder(oj(png_root, "val"), transform=base_transform)
+    test_dataset_raw = ImageFolder(oj(png_root, "test"), transform=base_transform)
+
+    mean, std = _compute_mean_std(train_dataset_raw)
+    norm = Normalize(mean.tolist(), std.tolist())
+    train_dataset = ImageFolder(oj(png_root, "train"), transform=Compose([base_transform, norm]))
+    val_dataset = ImageFolder(oj(png_root, "val"), transform=Compose([base_transform, norm]))
+    test_dataset = ImageFolder(oj(png_root, "test"), transform=Compose([base_transform, norm]))
+
+    x_numpy_train = np.load(oj(_repo_root, "data", "ColorMNIST", "train_x.npy"))
+    prob = (x_numpy_train.sum(axis = 1) > 0.0).mean(axis = 0).reshape(-1)
+    prob /=prob.sum()
+else:
+    train_dataset = load_dataset_from_npy("train")
+    val_dataset = load_dataset_from_npy("val")
+    test_dataset = load_dataset_from_npy("test")
+
+    x_numpy_train = np.load(oj(_repo_root, "data", "ColorMNIST", "train_x.npy"))
+    prob = (x_numpy_train.sum(axis = 1) > 0.0).mean(axis = 0).reshape(-1)
+    prob /=prob.sum()
+
+    mean = x_numpy_train.mean(axis = (0,2,3))
+    std = x_numpy_train.std(axis = (0,2,3))
+
+    def _apply_norm(dataset):
+        x, y = dataset.tensors
+        x = x - mean[None, :, None, None]
+        x = x / std[None, :, None, None]
+        return utils.TensorDataset(x, y)
+
+    train_dataset = _apply_norm(train_dataset)
+    val_dataset = _apply_norm(val_dataset)
+    test_dataset = _apply_norm(test_dataset)
 
 torch.manual_seed(args.seed)
 torch.cuda.manual_seed(args.seed)

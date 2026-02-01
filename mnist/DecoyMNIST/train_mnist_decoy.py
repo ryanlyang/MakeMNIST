@@ -84,6 +84,10 @@ parser.add_argument('--regularizer_rate', type=float, default=0.0, metavar='N',
                     help='how heavy to regularize lower order interaction (AKA color)')
 parser.add_argument('--grad_method', type=int, default=0, metavar='N',
                     help='how heavy to regularize lower order interaction (AKA color)')
+parser.add_argument('--use-png', action='store_true', default=False,
+                    help='load data from PNG folders instead of .npy')
+parser.add_argument('--png-root', type=str, default=None,
+                    help='root folder for PNGs (default: data/DecoyMNIST_png)')
 # parser.add_argument('--gradient_method', type=string, default="CD", metavar='N',
                     # help='what method is used')
 args = parser.parse_args()
@@ -107,12 +111,19 @@ device = torch.device("cuda" if use_cuda else "cpu")
 
 kwargs = {'num_workers': 1, 'pin_memory': True} if use_cuda else {}
 
-train_x_tensor = torch.Tensor(np.load(oj(_repo_root, "data", "ColorMNIST", "train_x_decoy.npy")))
-# Use full MNIST labels to match the 60k decoy training images
-_mnist_root = oj(_repo_root, "data")
-_mnist_train = datasets.MNIST(root=_mnist_root, train=True, download=False, transform=None)
-train_y_tensor = torch.Tensor(np.asarray(_mnist_train.targets)).type(torch.int64)
-complete_dataset = utils.TensorDataset(train_x_tensor,train_y_tensor) # create your datset
+if args.use_png:
+    from torchvision.datasets import ImageFolder
+    from torchvision.transforms import Compose, ToTensor, Lambda
+    png_root = args.png_root or oj(_repo_root, "data", "DecoyMNIST_png")
+    transform = Compose([ToTensor(), Lambda(lambda x: x * 2.0 - 1.0)])
+    complete_dataset = ImageFolder(oj(png_root, "train"), transform=transform)
+else:
+    train_x_tensor = torch.Tensor(np.load(oj(_repo_root, "data", "ColorMNIST", "train_x_decoy.npy")))
+    # Use full MNIST labels to match the 60k decoy training images
+    _mnist_root = oj(_repo_root, "data")
+    _mnist_train = datasets.MNIST(root=_mnist_root, train=True, download=False, transform=None)
+    train_y_tensor = torch.Tensor(np.asarray(_mnist_train.targets)).type(torch.int64)
+    complete_dataset = utils.TensorDataset(train_x_tensor,train_y_tensor) # create your datset
 
 
 num_train = int(len(complete_dataset)*.9)
@@ -124,10 +135,13 @@ train_loader = utils.DataLoader(train_dataset,
 test_loader = utils.DataLoader(test_dataset,
     batch_size=args.batch_size, shuffle=True, **kwargs) # create your dataloader
 
-test_x_tensor = torch.Tensor(np.load(oj(_repo_root, "data", "ColorMNIST", "test_x_decoy.npy")))
-_mnist_test = datasets.MNIST(root=_mnist_root, train=False, download=False, transform=None)
-test_y_tensor = torch.Tensor(np.asarray(_mnist_test.targets)).type(torch.int64)
-val_dataset = utils.TensorDataset(test_x_tensor,test_y_tensor) # create your datset
+if args.use_png:
+    val_dataset = ImageFolder(oj(png_root, "test"), transform=transform)
+else:
+    test_x_tensor = torch.Tensor(np.load(oj(_repo_root, "data", "ColorMNIST", "test_x_decoy.npy")))
+    _mnist_test = datasets.MNIST(root=_mnist_root, train=False, download=False, transform=None)
+    test_y_tensor = torch.Tensor(np.asarray(_mnist_test.targets)).type(torch.int64)
+    val_dataset = utils.TensorDataset(test_x_tensor,test_y_tensor) # create your datset
 val_loader = utils.DataLoader(val_dataset,
         batch_size=args.test_batch_size, shuffle=True, **kwargs) # create your dataloader
 
