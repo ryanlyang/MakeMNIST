@@ -35,10 +35,12 @@ echo "Training ColorMNIST (vanilla, 30 epochs)"
 srun --unbuffered python -u mnist/ColorMNIST/train.py \
   --regularizer_rate 0 \
   --epochs 30 \
-  --seed 0
+  --seed 0 \
+  --use-png
 
 echo "Training DecoyMNIST (vanilla, 30 epochs)"
 srun --unbuffered python -u mnist/DecoyMNIST/train_mnist_decoy.py \
   --regularizer_rate 0 \
   --epochs 30 \
-  --seed 0
+  --seed 0 \
+  --use-png
