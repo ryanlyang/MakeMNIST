@@ -330,11 +330,12 @@ print(f"Attention epoch: {args.attention_epoch}, KL lambda: {args.kl_lambda}, "
 
 # ---------------------------------------------------------------------------
 # Model + optimizer
+# Pre-attention: Adam (matches vanilla paperstyle) — no scheduler
+# Post-attention: SGD + StepLR for guided phase
 # ---------------------------------------------------------------------------
 model = make_gradcam_model().to(device)
-optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum,
-                      weight_decay=args.weight_decay)
-scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=args.step_size, gamma=args.gamma)
+optimizer = optim.Adam(model.parameters(), weight_decay=0.0001)
+scheduler = None  # no scheduler during Adam phase
 
 
 # ---------------------------------------------------------------------------
@@ -499,7 +500,7 @@ for epoch in range(1, args.epochs + 1):
     attention_active = (epoch >= args.attention_epoch) and (args.kl_lambda > 0)
 
     if epoch == args.attention_epoch and args.kl_lambda > 0:
-        print(f'\n*** Attention epoch {epoch}: restarting optimizer & scheduler ***')
+        print(f'\n*** Attention epoch {epoch}: switching Adam -> SGD + StepLR ***')
         optimizer = optim.SGD(model.parameters(), lr=args.lr2, momentum=args.momentum,
                               weight_decay=args.weight_decay)
         scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=args.step_size,
@@ -513,7 +514,8 @@ for epoch in range(1, args.epochs + 1):
 
     train_epoch(model, device, train_loader, optimizer, epoch,
                 kl_lambda_real, attention_active)
-    scheduler.step()
+    if scheduler is not None:
+        scheduler.step()
 
     optim_num = validate(model, device, val_loader, epoch)
 
