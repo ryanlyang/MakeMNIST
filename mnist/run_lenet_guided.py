@@ -288,7 +288,7 @@ norm = Normalize(mean.tolist(), std.tolist())
 full_transform = Compose([base_transform, norm])
 
 mask_transform = transforms.Compose([
-    ExpandWhite(thr=10, radius=4),
+    ExpandWhite(thr=10, radius=2),
     EdgeExtract(thr=10, edge_width=1),
     transforms.Resize((28, 28)),
     transforms.ToTensor(),

@@ -6,8 +6,8 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
-#SBATCH --output=/home/ryreu/guided_cnn/logsMNIST/guided_colormnist_lenet_%j.out
-#SBATCH --error=/home/ryreu/guided_cnn/logsMNIST/guided_colormnist_lenet_%j.err
+#SBATCH --output=/home/ryreu/guided_cnn/logsMNIST/expandrad_2_colormnist_lenet_%j.out
+#SBATCH --error=/home/ryreu/guided_cnn/logsMNIST/expandrad_2_colormnist_lenet_%j.err
 #SBATCH --signal=TERM@120
 
 set -Eeuo pipefail
