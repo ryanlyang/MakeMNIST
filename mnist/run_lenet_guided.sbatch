@@ -39,7 +39,7 @@ echo "Masks: ${GT_PATH}"
 srun --unbuffered python -u mnist/run_lenet_guided.py \
   --png-root "${DATA_PATH}" \
   --gt-path "${GT_PATH}" \
-  --kl-lambda 5000 \
+  --kl-lambda 10000 \
   --attention-epoch 1 \
   --epochs 30 \
   --seed 0
