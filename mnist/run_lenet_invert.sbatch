@@ -39,7 +39,7 @@ echo "Masks: ${GT_PATH}"
 srun --unbuffered python -u mnist/run_lenet_invert.py \
   --png-root "${DATA_PATH}" \
   --gt-path "${GT_PATH}" \
-  --kl-lambda 160 \
+  --kl-lambda 5000 \
   --attention-epoch 16 \
   --epochs 30 \
   --seed 0
