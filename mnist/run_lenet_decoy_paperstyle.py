@@ -139,7 +139,7 @@ def train(args, model, device, train_loader, optimizer, epoch):
             s.cd.append(0.0)
 
 
-def test(args, model, device, test_loader, epoch):
+def test(args, model, device, test_loader, epoch, label="Val"):
     model.eval()
     test_loss = 0
     correct = 0
@@ -153,8 +153,8 @@ def test(args, model, device, test_loader, epoch):
 
     test_loss /= len(test_loader.dataset)
 
-    print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
-        test_loss, correct, len(test_loader.dataset),
+    print('\nEpoch {} {} set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
+        epoch, label, test_loss, correct, len(test_loader.dataset),
         100. * correct / len(test_loader.dataset)))
     s.losses_test.append(test_loss)
     s.accs_test.append(100. * correct / len(test_loader.dataset))
@@ -184,8 +184,7 @@ end = time.time()
 s.time_per_epoch = (end - start) / (epoch)
 
 s.model_weights = best_model_weights
-print("FF")
-test(args, model, device, val_loader, epoch + 1)
+test(args, model, device, val_loader, epoch + 1, label="Test")
 s.dataset = "Decoy"
 s.method = "Vanilla"
 
