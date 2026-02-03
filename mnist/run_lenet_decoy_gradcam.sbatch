@@ -39,7 +39,7 @@ echo "Masks: ${GT_PATH}"
 srun --unbuffered python -u mnist/run_lenet_decoy_gradcam.py \
   --png-root "${DATA_PATH}" \
   --gt-path "${GT_PATH}" \
-  --kl-lambda 0 \
-  --attention-epoch 30 \
+  --kl-lambda 160 \
+  --attention-epoch 15 \
   --epochs 30 \
   --seed 0
