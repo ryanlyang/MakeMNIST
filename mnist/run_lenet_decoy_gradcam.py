@@ -294,8 +294,8 @@ image_transform = Compose([Grayscale(num_output_channels=1), ToTensor(),
                            Lambda(lambda x: x * 2.0 - 1.0)])
 
 mask_transform = transforms.Compose([
-    ExpandWhite(thr=10, radius=3),
-    EdgeExtract(thr=10, edge_width=1),
+    # ExpandWhite(thr=10, radius=3),
+    # EdgeExtract(thr=10, edge_width=1),
     transforms.Resize((28, 28)),
     transforms.ToTensor(),
     Brighten(8.0),
