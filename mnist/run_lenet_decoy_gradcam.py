@@ -235,8 +235,8 @@ parser.add_argument('--epochs', type=int, default=30, metavar='N',
                     help='number of epochs to train (default: 30)')
 parser.add_argument('--lr', type=float, default=0.001, metavar='LR',
                     help='learning rate (default: 0.001)')
-parser.add_argument('--momentum', type=float, default=0.98, metavar='M',
-                    help='SGD momentum (default: 0.98)')
+parser.add_argument('--lr2', type=float, default=None,
+                    help='learning rate after attention_epoch restart (default: same as --lr)')
 parser.add_argument('--weight-decay', type=float, default=1e-4,
                     help='weight decay (default: 1e-4)')
 parser.add_argument('--step-size', type=int, default=7,
@@ -259,8 +259,6 @@ parser.add_argument('--kl-lambda', type=float, default=160.0,
                     help='weight for attention KL loss (default: 160.0)')
 parser.add_argument('--kl-incr', type=float, default=None,
                     help='KL lambda increase per epoch after attention_epoch (default: kl_lambda/10)')
-parser.add_argument('--lr2', type=float, default=None,
-                    help='learning rate after attention_epoch restart (default: same as --lr)')
 parser.add_argument('--beta', type=float, default=0.3,
                     help='weight for reverse KL in optim_num (default: 0.3)')
 parser.add_argument('--val-frac', type=float, default=0.16,
@@ -329,13 +327,11 @@ print(f"Attention epoch: {args.attention_epoch}, KL lambda: {args.kl_lambda}, "
       f"KL incr: {args.kl_incr}, beta: {args.beta}")
 
 # ---------------------------------------------------------------------------
-# Model + optimizer
-# Pre-attention: Adam (matches vanilla paperstyle) — no scheduler
-# Post-attention: SGD + StepLR for guided phase
+# Model + optimizer: Adam throughout, reset at attention epoch
 # ---------------------------------------------------------------------------
 model = make_gradcam_model().to(device)
-optimizer = optim.Adam(model.parameters(), weight_decay=0.0001)
-scheduler = None  # no scheduler during Adam phase
+optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+scheduler = None
 
 
 # ---------------------------------------------------------------------------
@@ -500,9 +496,8 @@ for epoch in range(1, args.epochs + 1):
     attention_active = (epoch >= args.attention_epoch) and (args.kl_lambda > 0)
 
     if epoch == args.attention_epoch and args.kl_lambda > 0:
-        print(f'\n*** Attention epoch {epoch}: switching Adam -> SGD + StepLR ***')
-        optimizer = optim.SGD(model.parameters(), lr=args.lr2, momentum=args.momentum,
-                              weight_decay=args.weight_decay)
+        print(f'\n*** Attention epoch {epoch}: resetting optimizer & beginning guidance ***')
+        optimizer = optim.Adam(model.parameters(), lr=args.lr2, weight_decay=args.weight_decay)
         scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=args.step_size,
                                               gamma=args.gamma)
         best_model_weights = deepcopy(model.state_dict())
