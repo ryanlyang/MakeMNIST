@@ -489,8 +489,6 @@ if __name__ == "__main__":
 
     all_results = {}  # {gt_name: [seed_results]}
 
-    global full_train  # Allow reassigning the dataset for different GT paths
-
     for gt_name, gt_path in gt_paths_to_eval:
         print(f"\n{'#'*60}")
         print(f"  Phase 2: {args.n_seeds} seeds with best hyperparameters")
