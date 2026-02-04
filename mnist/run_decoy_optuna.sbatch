@@ -42,5 +42,5 @@ srun --unbuffered python -u mnist/run_decoy_optuna.py \
   --gt-path "${GT_PATH}" \
   --study-name "${STUDY_NAME}" \
   --epochs 30 \
-  --sweep-hours 24 \
-  --n-seeds 10
+  --n-trials 100 \
+  --n-seeds 5

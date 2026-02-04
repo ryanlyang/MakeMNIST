@@ -381,8 +381,8 @@ def run_training(seed, kl_lambda, attention_epoch, lr, lr2, step_size, gamma,
                   f"rev_kl={val_rev:.4f}  optim={optim_num:.4f}"
                   f"{'  *best*' if optim_num >= best_optim else ''}")
 
-        # Optuna pruning
-        if trial is not None:
+        # Optuna pruning (only after attention epoch when guidance has started)
+        if trial is not None and epoch >= attention_epoch:
             trial.report(best_optim, epoch)
             if trial.should_prune():
                 raise optuna.TrialPruned()
@@ -414,7 +414,7 @@ def run_training(seed, kl_lambda, attention_epoch, lr, lr2, step_size, gamma,
 # ═════════════════════════════════════════════════════════════════════════
 def objective(trial):
     kl_lambda = trial.suggest_float("kl_lambda", 1.0, 500.0, log=True)
-    attention_epoch = trial.suggest_int("attention_epoch", 3, 20)
+    attention_epoch = trial.suggest_int("attention_epoch", 1, 25)
     lr = trial.suggest_float("lr", 1e-4, 5e-2, log=True)
     lr2 = trial.suggest_float("lr2", 1e-5, 5e-2, log=True)
     step_size = trial.suggest_int("step_size", 2, 15)

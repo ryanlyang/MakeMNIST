@@ -1,13 +1,16 @@
 """Optuna hyperparameter sweep for Grad-CAM guided LeNet on DecoyMNIST.
 
-Phase 1 (24 h): Optuna explores kl_lambda, attention_epoch, lr, lr2,
-                step_size, gamma.  kl_incr is always kl_lambda / 10.
-                Objective = best optim_value seen during training.
-                Adam throughout, reset at attention epoch with lr2 + StepLR.
-                Uses Grad-CAM on original FC LeNet (can learn decoy shortcut).
+Phase 1 (100 trials): Optuna explores kl_lambda, attention_epoch, lr, lr2,
+                      step_size, gamma.  kl_incr is always kl_lambda / 10.
+                      Objective = best optim_value seen during training.
+                      Adam throughout, reset at attention epoch with lr2 + StepLR.
+                      Uses Grad-CAM on original FC LeNet (can learn decoy shortcut).
+                      Pruning disabled.
 
-Phase 2: Take the best trial's hyperparameters and train 10 seeds,
-         printing test accuracy on the best-optim-value checkpoint each time.
+Phase 2: Take the best trial's hyperparameters and train 5 seeds each on:
+         - Original GT_PATH (WeCLIP)
+         - OpenAI XCiT GT path
+         - OpenCLIP GT path
 """
 
 from __future__ import print_function
@@ -34,6 +37,13 @@ from PIL import Image
 
 import optuna
 
+# -- GT paths for multi-mask evaluation ---------------------------------------
+GT_PATHS = {
+    "WeCLIP": "/home/ryreu/guided_cnn/MNIST_AGAIN/DecoyGen/LearningToLook/code/WeCLIPPlus/results_decoy_mnist/val/prediction_cmap",
+    "OpenAI_XCiT": "/home/ryreu/guided_cnn/MNIST_AGAIN/DecoyGen/LearningToLook/code/WeCLIPPlus/results_decoy_mnist_openai_xcit/val/prediction_cmap",
+    "OpenCLIP": "/home/ryreu/guided_cnn/MNIST_AGAIN/DecoyGen/LearningToLook/code/WeCLIPPlus/results_decoy_mnist_openclip/val/prediction_cmap",
+}
+
 _here = os.path.dirname(os.path.abspath(__file__))
 _repo_root = os.path.abspath(os.path.join(_here, ".."))
 sys.path.append(os.path.join(_here, "DecoyMNIST"))
@@ -56,10 +66,10 @@ parser.add_argument("--beta", type=float, default=0.3)
 parser.add_argument("--val-frac", type=float, default=0.16)
 parser.add_argument("--no-cuda", action="store_true", default=False)
 parser.add_argument("--log-interval", type=int, default=100)
-parser.add_argument("--sweep-hours", type=float, default=24.0,
-                    help="How many hours to run the Optuna sweep (default: 24)")
-parser.add_argument("--n-seeds", type=int, default=10,
-                    help="Number of seeds for final evaluation (default: 10)")
+parser.add_argument("--n-trials", type=int, default=100,
+                    help="Number of Optuna trials to run (default: 100)")
+parser.add_argument("--n-seeds", type=int, default=5,
+                    help="Number of seeds for final evaluation per GT path (default: 5)")
 parser.add_argument("--study-name", type=str, default="decoymnist_gradcam")
 parser.add_argument("--db-path", type=str, default=None,
                     help="SQLite path for Optuna storage (default: auto)")
@@ -372,11 +382,9 @@ def run_training(seed, kl_lambda, attention_epoch, lr, lr2, step_size, gamma,
                   f"rev_kl={val_rev:.4f}  optim={optim_num:.4f}"
                   f"{'  *best*' if optim_num >= best_optim else ''}")
 
-        # Optuna pruning
+        # Report to Optuna (no pruning)
         if trial is not None:
             trial.report(best_optim, epoch)
-            if trial.should_prune():
-                raise optuna.TrialPruned()
 
     # -- Test with best-optim checkpoint ----------------------------------
     if best_model_weights is not None:
@@ -405,7 +413,7 @@ def run_training(seed, kl_lambda, attention_epoch, lr, lr2, step_size, gamma,
 # =============================================================================
 def objective(trial):
     kl_lambda = trial.suggest_float("kl_lambda", 1.0, 500.0, log=True)
-    attention_epoch = trial.suggest_int("attention_epoch", 3, 20)
+    attention_epoch = trial.suggest_int("attention_epoch", 1, 25)
     lr = trial.suggest_float("lr", 1e-4, 5e-2, log=True)
     lr2 = trial.suggest_float("lr2", 1e-5, 5e-2, log=True)
     step_size = trial.suggest_int("step_size", 2, 15)
@@ -432,9 +440,17 @@ def objective(trial):
     return best_optim
 
 
-if __name__ == "__main__":
-    sweep_seconds = args.sweep_hours * 3600
+def build_dataset_with_gt(gt_path):
+    """Build GuidedImageFolder with a specific GT path."""
+    return GuidedImageFolder(
+        image_root=os.path.join(png_root, "train"),
+        mask_root=gt_path,
+        image_transform=image_transform,
+        mask_transform=mask_transform,
+    )
 
+
+if __name__ == "__main__":
     db_path = args.db_path or os.path.join(model_path, f"{args.study_name}.db")
     storage = f"sqlite:///{db_path}"
     print(f"\nOptuna storage: {storage}")
@@ -444,14 +460,14 @@ if __name__ == "__main__":
         storage=storage,
         direction="maximize",
         load_if_exists=True,
-        pruner=optuna.pruners.MedianPruner(n_startup_trials=5, n_warmup_steps=5),
+        pruner=optuna.pruners.NopPruner(),  # No pruning
     )
 
     print(f"\n{'#'*60}")
-    print(f"  Phase 1: Optuna sweep ({args.sweep_hours:.1f} h)")
+    print(f"  Phase 1: Optuna sweep ({args.n_trials} trials, no pruning)")
     print(f"{'#'*60}\n")
     t0 = time.time()
-    study.optimize(objective, timeout=sweep_seconds)
+    study.optimize(objective, n_trials=args.n_trials)
     elapsed = time.time() - t0
     print(f"\nSweep finished after {elapsed/3600:.2f} h, "
           f"{len(study.trials)} trials attempted.")
@@ -460,47 +476,66 @@ if __name__ == "__main__":
     print(f"\nBest trial #{best.number}: optim_value = {best.value:.4f}")
     print(f"  Params: {best.params}")
 
-    # =================================================================
-    #  Phase 2: 10 seeds with best hyperparameters
-    # =================================================================
-    print(f"\n{'#'*60}")
-    print(f"  Phase 2: {args.n_seeds} seeds with best hyperparameters")
-    print(f"{'#'*60}\n")
-
     bp = best.params
-    seed_results = []
-    for i in range(args.n_seeds):
-        seed = i
-        print(f"\n--- Seed {seed} ---")
-        best_optim, test_acc, best_weights = run_training(
-            seed=seed,
-            kl_lambda=bp["kl_lambda"],
-            attention_epoch=bp["attention_epoch"],
-            lr=bp["lr"],
-            lr2=bp["lr2"],
-            step_size=bp["step_size"],
-            gamma=bp["gamma"],
-            verbose=True,
-        )
-        seed_results.append({
-            "seed": seed,
-            "optim_value": best_optim,
-            "test_acc": test_acc,
-        })
 
-        # Save each seed's model via params_save
-        s = S(args.epochs)
-        s.regularizer_rate = bp["kl_lambda"]
-        s.num_blobs = 0
-        s.seed = seed
-        s.dataset = "Decoy"
-        s.method = "GradCAM_Guided"
-        s.model_weights = best_weights
-        np.random.seed()
-        pid = "".join(["%s" % np.random.randint(0, 9) for _ in range(20)])
-        os.makedirs(model_path, exist_ok=True)
-        pkl.dump(s._dict(), open(os.path.join(model_path, pid + ".pkl"), "wb"))
-        print(f"  Saved model to {os.path.join(model_path, pid + '.pkl')}")
+    # =================================================================
+    #  Phase 2: Evaluate best hyperparameters on all GT paths
+    # =================================================================
+    # Use supplied --gt-path as first, then add the other two from GT_PATHS
+    gt_paths_to_eval = [("Original", args.gt_path)]
+    for name, path in GT_PATHS.items():
+        if path != args.gt_path:
+            gt_paths_to_eval.append((name, path))
+
+    all_results = {}  # {gt_name: [seed_results]}
+
+    for gt_name, gt_path in gt_paths_to_eval:
+        print(f"\n{'#'*60}")
+        print(f"  Phase 2: {args.n_seeds} seeds with best hyperparameters")
+        print(f"  GT Path: {gt_name}")
+        print(f"  ({gt_path})")
+        print(f"{'#'*60}\n")
+
+        # Rebuild dataset with this GT path
+        global full_train
+        full_train = build_dataset_with_gt(gt_path)
+        print(f"Rebuilt dataset with {len(full_train)} samples using {gt_name} masks")
+
+        seed_results = []
+        for i in range(args.n_seeds):
+            seed = i
+            print(f"\n--- Seed {seed} ({gt_name}) ---")
+            best_optim, test_acc, best_weights = run_training(
+                seed=seed,
+                kl_lambda=bp["kl_lambda"],
+                attention_epoch=bp["attention_epoch"],
+                lr=bp["lr"],
+                lr2=bp["lr2"],
+                step_size=bp["step_size"],
+                gamma=bp["gamma"],
+                verbose=True,
+            )
+            seed_results.append({
+                "seed": seed,
+                "optim_value": best_optim,
+                "test_acc": test_acc,
+            })
+
+            # Save each seed's model via params_save
+            s = S(args.epochs)
+            s.regularizer_rate = bp["kl_lambda"]
+            s.num_blobs = 0
+            s.seed = seed
+            s.dataset = "Decoy"
+            s.method = f"GradCAM_Guided_{gt_name}"
+            s.model_weights = best_weights
+            np.random.seed()
+            pid = "".join(["%s" % np.random.randint(0, 9) for _ in range(20)])
+            os.makedirs(model_path, exist_ok=True)
+            pkl.dump(s._dict(), open(os.path.join(model_path, pid + ".pkl"), "wb"))
+            print(f"  Saved model to {os.path.join(model_path, pid + '.pkl')}")
+
+        all_results[gt_name] = seed_results
 
     # -- Summary ----------------------------------------------------------
     print(f"\n{'='*60}")
@@ -509,13 +544,24 @@ if __name__ == "__main__":
     print(f"Best hyperparameters (from trial #{best.number}):")
     for k, v in bp.items():
         print(f"  {k}: {v}")
-    print(f"\nResults across {args.n_seeds} seeds:")
-    print(f"{'Seed':>6s}  {'Optim':>8s}  {'Test Acc':>10s}")
-    optims = []
-    accs = []
-    for r in seed_results:
-        print(f"{r['seed']:>6d}  {r['optim_value']:>8.4f}  {r['test_acc']:>9.1f}%")
-        optims.append(r["optim_value"])
-        accs.append(r["test_acc"])
-    print(f"\nOptim  -- mean: {np.mean(optims):.4f}, std: {np.std(optims):.4f}")
-    print(f"TestAcc -- mean: {np.mean(accs):.1f}%, std: {np.std(accs):.1f}%")
+
+    for gt_name, seed_results in all_results.items():
+        print(f"\n--- {gt_name} GT Path ---")
+        print(f"{'Seed':>6s}  {'Optim':>8s}  {'Test Acc':>10s}")
+        optims = []
+        accs = []
+        for r in seed_results:
+            print(f"{r['seed']:>6d}  {r['optim_value']:>8.4f}  {r['test_acc']:>9.1f}%")
+            optims.append(r["optim_value"])
+            accs.append(r["test_acc"])
+        print(f"  Optim   -- mean: {np.mean(optims):.4f}, std: {np.std(optims):.4f}")
+        print(f"  TestAcc -- mean: {np.mean(accs):.1f}%, std: {np.std(accs):.1f}%")
+
+    # Final comparison table
+    print(f"\n{'='*60}")
+    print("  COMPARISON ACROSS GT PATHS")
+    print(f"{'='*60}")
+    print(f"{'GT Path':<15s}  {'Mean Acc':>10s}  {'Std':>8s}")
+    for gt_name, seed_results in all_results.items():
+        accs = [r["test_acc"] for r in seed_results]
+        print(f"{gt_name:<15s}  {np.mean(accs):>9.1f}%  {np.std(accs):>7.1f}%")
