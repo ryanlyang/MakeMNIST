@@ -251,7 +251,7 @@ parser.add_argument('--kl-incr', type=float, default=None,
                     help='KL lambda increase per epoch after attention_epoch (default: kl_lambda/10)')
 parser.add_argument('--lr2', type=float, default=None,
                     help='learning rate after attention_epoch restart (default: same as --lr)')
-parser.add_argument('--beta', type=float, default=0.3,
+parser.add_argument('--beta', type=float, default=0.1,
                     help='weight for reverse KL in optim_num (default: 0.3)')
 parser.add_argument('--val-frac', type=float, default=0.16,
                     help='fraction of training data for internal val (default: 0.16)')
