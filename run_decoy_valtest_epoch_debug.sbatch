@@ -36,6 +36,6 @@ python -u mnist/run_decoy_valtest_epoch.py \
   --gt-path "${GT_PATH}" \
   --val-saliency igrad \
   --val-metric outside \
-  --attention-epoch 10 \
-  --kl-lambda 800 \
+  --attention-epoch 2 \
+  --kl-lambda 250 \
   --epochs 30
