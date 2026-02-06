@@ -37,5 +37,5 @@ python -u mnist/run_decoy_valtest_epoch.py \
   --val-saliency igrad \
   --val-metric outside \
   --attention-epoch 10 \
-  --kl-lambda 100 \
+  --kl-lambda 250 \
   --epochs 30
