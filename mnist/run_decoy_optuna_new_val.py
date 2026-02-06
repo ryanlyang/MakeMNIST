@@ -1,7 +1,7 @@
 """Optuna hyperparameter sweep for Grad-CAM guided LeNet on DecoyMNIST.
 
-Phase 1 (100 trials): Optuna explores kl_lambda, attention_epoch, lr, lr2,
-                      step_size, gamma.  kl_incr is always kl_lambda / 10.
+Phase 1 (100 trials): Optuna explores kl_lambda, kl_incr, attention_epoch,
+                      lr, lr2. StepLR settings are fixed.
                       Objective = best optim_value seen during training.
                       Adam throughout, reset at attention epoch with lr2 + StepLR.
                       Uses Grad-CAM on original FC LeNet (can learn decoy shortcut).
@@ -278,12 +278,11 @@ print(f"Full train: {len(full_train)}, Test: {len(test_dataset)}")
 # =============================================================================
 #  Core training function (returns best optim_value and test acc)
 # =============================================================================
-def run_training(seed, kl_lambda, attention_epoch, lr, lr2, step_size, gamma,
+def run_training(seed, kl_lambda, kl_incr, attention_epoch, lr, lr2,
                  epochs=None, trial=None, verbose=True):
     """Train one run.  Returns (best_optim_value, test_acc, best_weights)."""
     if epochs is None:
         epochs = args.epochs
-    kl_incr = kl_lambda / 10.0
 
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
@@ -305,7 +304,7 @@ def run_training(seed, kl_lambda, attention_epoch, lr, lr2, step_size, gamma,
 
     model = make_gradcam_model().to(device)
 
-    # Adam throughout, reset at attention epoch with lr2 + StepLR
+    # Adam throughout, reset at attention epoch with lr2 + StepLR (fixed)
     optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=args.weight_decay)
     scheduler = None
 
@@ -321,7 +320,7 @@ def run_training(seed, kl_lambda, attention_epoch, lr, lr2, step_size, gamma,
             if verbose:
                 print(f"  *** Attention epoch {epoch}: resetting optimizer & beginning guidance ***")
             optimizer = optim.Adam(model.parameters(), lr=lr2, weight_decay=args.weight_decay)
-            scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=step_size, gamma=gamma)
+            scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.3)
             best_model_weights = deepcopy(model.state_dict())
             best_optim = -100.0
             kl_lambda_real = kl_lambda
@@ -453,26 +452,23 @@ def run_training(seed, kl_lambda, attention_epoch, lr, lr2, step_size, gamma,
 # =============================================================================
 def objective(trial):
     kl_lambda = trial.suggest_float("kl_lambda", 1.0, 500.0, log=True)
+    kl_incr = trial.suggest_float("kl_incr", 0.1, 50.0, log=True)
     attention_epoch = trial.suggest_int("attention_epoch", 1, 25)
     lr = trial.suggest_float("lr", 1e-4, 5e-2, log=True)
     lr2 = trial.suggest_float("lr2", 1e-5, 5e-2, log=True)
-    step_size = trial.suggest_int("step_size", 2, 15)
-    gamma = trial.suggest_float("gamma", 0.05, 0.5, log=True)
 
     print(f"\n{'='*60}")
-    print(f"Trial {trial.number}: kl_lambda={kl_lambda:.2f}, "
-          f"attn_epoch={attention_epoch}, lr={lr:.5f}, lr2={lr2:.5f}, "
-          f"step_size={step_size}, gamma={gamma:.3f}")
+    print(f"Trial {trial.number}: kl_lambda={kl_lambda:.2f}, kl_incr={kl_incr:.2f}, "
+          f"attn_epoch={attention_epoch}, lr={lr:.5f}, lr2={lr2:.5f}")
     print(f"{'='*60}")
 
     best_optim, test_acc, _ = run_training(
         seed=42,
         kl_lambda=kl_lambda,
+        kl_incr=kl_incr,
         attention_epoch=attention_epoch,
         lr=lr,
         lr2=lr2,
-        step_size=step_size,
-        gamma=gamma,
         trial=trial,
         verbose=True,
     )
@@ -547,11 +543,10 @@ if __name__ == "__main__":
             best_optim, test_acc, best_weights = run_training(
                 seed=seed,
                 kl_lambda=bp["kl_lambda"],
+                kl_incr=bp["kl_incr"],
                 attention_epoch=bp["attention_epoch"],
                 lr=bp["lr"],
                 lr2=bp["lr2"],
-                step_size=bp["step_size"],
-                gamma=bp["gamma"],
                 verbose=True,
             )
             seed_results.append({
