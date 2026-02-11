@@ -16,8 +16,12 @@ REPO_ROOT="/home/ryreu/guided_cnn/MNIST_AGAIN/MakeMNIST"
 CONDA_ENV="learntolook"
 LOG_DIR="/home/ryreu/guided_cnn/logsMNIST"
 GT_PATH="/home/ryreu/guided_cnn/MNIST_AGAIN/DecoyGen/LearningToLook/code/WeCLIPPlus/results_decoy_mnist/val/prediction_cmap"
+RUN_TAG="$(date +%Y%m%d_%H%M%S)_${SLURM_JOB_ID:-manual}"
+STUDY_NAME="decoy_param_optuna_igrad_revkl_${RUN_TAG}"
+DB_PATH="${REPO_ROOT}/models/DecoyMNIST/${STUDY_NAME}.db"
 
 mkdir -p "${LOG_DIR}"
+mkdir -p "${REPO_ROOT}/models/DecoyMNIST"
 
 source ~/miniconda3/etc/profile.d/conda.sh
 conda activate "${CONDA_ENV}"
@@ -36,4 +40,7 @@ python -u mnist/run_decoy_param_optuna.py \
   --gt-path "${GT_PATH}" \
   --val-saliency igrad \
   --val-metric rev_kl \
-  --n-trials 50
+  --n-trials 50 \
+  --n-seeds 5 \
+  --study-name "${STUDY_NAME}" \
+  --db-path "${DB_PATH}"

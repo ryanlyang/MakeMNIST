@@ -529,13 +529,18 @@ if __name__ == "__main__":
     )
 
     print(f"\n{'#'*60}")
-    print(f"  Phase 1: Optuna sweep ({args.n_trials} trials, no pruning)")
+    print(f"  Phase 1: Optuna sweep (cap={args.n_trials} trials, no pruning)")
     print(f"{'#'*60}\n")
-    t0 = time.time()
-    study.optimize(objective, n_trials=args.n_trials)
-    elapsed = time.time() - t0
-    print(f"\nSweep finished after {elapsed/3600:.2f} h, "
-          f"{len(study.trials)} trials attempted.")
+    trials_before = len(study.trials)
+    remaining_trials = max(0, args.n_trials - trials_before)
+    if remaining_trials > 0:
+        t0 = time.time()
+        study.optimize(objective, n_trials=remaining_trials)
+        elapsed = time.time() - t0
+        print(f"\nSweep finished after {elapsed/3600:.2f} h, "
+              f"{len(study.trials)} total trials attempted.")
+    else:
+        print(f"Study already has {trials_before} trials (cap={args.n_trials}); skipping Phase 1 optimization.")
 
     best = study.best_trial
     print(f"\nBest trial #{best.number}: optim_value = {best.value:.4f}")
