@@ -18,7 +18,11 @@ CONDA_ENV="learntolook"
 
 DATA_PATH="/home/ryreu/guided_cnn/MNIST_AGAIN/MakeMNIST/data/DecoyMNIST_png"
 GT_PATH="${GT_PATH:-/home/ryreu/guided_cnn/MNIST_AGAIN/DecoyGen/LearningToLook/code/WeCLIPPlus/results_decoy_mnist/val/prediction_cmap}"
-STUDY_NAME="${STUDY_NAME:-decoymnist_guided}"
+BASE_STUDY_NAME="${STUDY_NAME:-decoymnist_guided}"
+RUN_TAG="$(date +%Y%m%d_%H%M%S)_${SLURM_JOB_ID:-manual}"
+STUDY_NAME="${BASE_STUDY_NAME}_${RUN_TAG}"
+DB_PATH="${REPO_ROOT}/models/DecoyMNIST/${STUDY_NAME}.db"
+mkdir -p "${REPO_ROOT}/models/DecoyMNIST"
 
 source ~/miniconda3/etc/profile.d/conda.sh
 conda activate "${CONDA_ENV}"
@@ -41,6 +45,7 @@ srun --unbuffered python -u mnist/run_decoy_optuna.py \
   --png-root "${DATA_PATH}" \
   --gt-path "${GT_PATH}" \
   --study-name "${STUDY_NAME}" \
+  --db-path "${DB_PATH}" \
   --epochs 30 \
   --n-trials 100 \
   --n-seeds 5

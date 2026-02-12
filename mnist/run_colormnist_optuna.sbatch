@@ -18,7 +18,11 @@ CONDA_ENV="learntolook"
 
 DATA_PATH="/home/ryreu/guided_cnn/MNIST_AGAIN/MakeMNIST/data/ColorMNIST_png"
 GT_PATH="${GT_PATH:-/home/ryreu/guided_cnn/MNIST_AGAIN/ColorGen/LearningToLook/code/WeCLIPPlus/results_mnist/val/prediction_cmap}"
-STUDY_NAME="${STUDY_NAME:-colormnist_guided}"
+BASE_STUDY_NAME="${STUDY_NAME:-colormnist_guided}"
+RUN_TAG="$(date +%Y%m%d_%H%M%S)_${SLURM_JOB_ID:-manual}"
+STUDY_NAME="${BASE_STUDY_NAME}_${RUN_TAG}"
+DB_PATH="${REPO_ROOT}/models/ColorMNIST_test/${STUDY_NAME}.db"
+mkdir -p "${REPO_ROOT}/models/ColorMNIST_test"
 
 source ~/miniconda3/etc/profile.d/conda.sh
 conda activate "${CONDA_ENV}"
@@ -41,6 +45,7 @@ srun --unbuffered python -u mnist/run_colormnist_optuna.py \
   --png-root "${DATA_PATH}" \
   --gt-path "${GT_PATH}" \
   --study-name "${STUDY_NAME}" \
+  --db-path "${DB_PATH}" \
   --epochs 30 \
   --sweep-hours 24 \
   --n-seeds 10

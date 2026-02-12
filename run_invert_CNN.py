@@ -340,21 +340,21 @@ def run_single(args, attn_epoch, kl_value):
 
     data_transforms = {
         'train': transforms.Compose([
-            transforms.Resize((32, 32)),
+            transforms.Resize((40, 40)),
             transforms.ToTensor(),
             transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
         ]),
         'eval': transforms.Compose([
-            transforms.Resize((32, 32)),
+            transforms.Resize((40, 40)),
             transforms.ToTensor(),
             transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
         ])
     }
     mask_transforms = {
         'train': transforms.Compose([
+            transforms.Resize((40, 40)),
             ExpandWhite(thr=10, radius=3),
             EdgeExtract(thr=10, edge_width=1),
-            transforms.Resize((32, 32)),
             transforms.ToTensor(),
             Brighten(8.0),
         ])

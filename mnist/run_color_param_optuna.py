@@ -55,6 +55,7 @@ os.makedirs(model_path, exist_ok=True)
 torch.backends.cudnn.deterministic = True
 FIXED_KL_LAMBDA = 200.0
 CE_WARMUP_EPOCHS = 5
+IMG_SIZE = 40
 
 
 # -- CLI args -----------------------------------------------------------------
@@ -65,7 +66,7 @@ parser.add_argument("--epochs", type=int, default=30)
 parser.add_argument("--batch-size", type=int, default=64)
 parser.add_argument("--test-batch-size", type=int, default=1000)
 parser.add_argument("--weight-decay", type=float, default=1e-4)
-parser.add_argument("--beta", type=float, default=0.3)
+parser.add_argument("--beta", type=float, default=1.0)
 parser.add_argument("--val-frac", type=float, default=0.16)
 parser.add_argument("--no-cuda", action="store_true", default=False)
 parser.add_argument("--log-interval", type=int, default=100)
@@ -89,6 +90,9 @@ if args.val_saliency != "igrad" or args.val_metric != "rev_kl":
     print("Forcing validation strategy to val_saliency=igrad and val_metric=rev_kl for this ablation.")
 args.val_saliency = "igrad"
 args.val_metric = "rev_kl"
+if args.beta != 1.0:
+    print("Forcing beta=1.0 for this ablation.")
+args.beta = 1.0
 use_cuda = not args.no_cuda and torch.cuda.is_available()
 device = torch.device("cuda" if use_cuda else "cpu")
 loader_kwargs = {"num_workers": 1, "pin_memory": True} if use_cuda else {}
@@ -101,8 +105,8 @@ class Net(nn.Module):
         super(Net, self).__init__()
         self.conv1 = nn.Conv2d(3, 20, 5, 1)
         self.conv2 = nn.Conv2d(20, 50, 5, 1)
-        # Input is resized to 32x32, so feature map is 5x5 before fc1.
-        self.fc1 = nn.Linear(5*5*50, 256)
+        # Input is resized to IMG_SIZE (36), so feature map is 6x6 before fc1.
+        self.fc1 = nn.Linear(6*6*50, 256)
         self.fc2 = nn.Linear(256, 10)
 
     def forward(self, x):
@@ -110,7 +114,7 @@ class Net(nn.Module):
         x = F.max_pool2d(x, 2, 2)
         x = F.relu(self.conv2(x))
         x = F.max_pool2d(x, 2, 2)
-        x = x.view(-1, 5*5*50)
+        x = x.view(-1, 6*6*50)
         x = F.relu(self.fc1(x))
         x = self.fc2(x)
         return F.log_softmax(x, dim=1)
@@ -120,7 +124,7 @@ class Net(nn.Module):
         x = F.max_pool2d(x, 2, 2)
         x = F.relu(self.conv2(x))
         x = F.max_pool2d(x, 2, 2)
-        x = x.view(-1, 5*5*50)
+        x = x.view(-1, 6*6*50)
         x = F.relu(self.fc1(x))
         x = self.fc2(x)
         return x
@@ -318,16 +322,16 @@ def _compute_mean_std(dataset, batch_size=512):
 
 # -- Build datasets once (shared across all trials) ---------------------------
 print("Loading datasets ...")
-base_transform = Compose([transforms.Resize((32, 32)), ToTensor(), Lambda(lambda x: x * 255.0)])
+base_transform = Compose([transforms.Resize((IMG_SIZE, IMG_SIZE)), ToTensor(), Lambda(lambda x: x * 255.0)])
 _raw = ImageFolder(os.path.join(png_root, "train"), transform=base_transform)
 _mean, _std = _compute_mean_std(_raw)
 image_transform = Compose([base_transform, transforms.Normalize(_mean.tolist(), _std.tolist())])
 del _raw
 
 mask_transform = transforms.Compose([
+    transforms.Resize((IMG_SIZE, IMG_SIZE)),
     ExpandWhite(thr=10, radius=3),
     EdgeExtract(thr=10, edge_width=1),
-    transforms.Resize((32, 32)),
     transforms.ToTensor(),
     Brighten(8.0),
 ])
@@ -506,8 +510,8 @@ def run_training(seed, lr, lr2, lr2_mult, ce_max_w,
 #  Phase 1: Optuna sweep
 # =============================================================================
 def objective(trial):
-    lr = trial.suggest_float("lr", 1e-5, 1e-3, log=True)
-    lr2 = trial.suggest_float("lr2", 1e-4, 1e-2, log=True)
+    lr = trial.suggest_float("lr", 1e-6, 1e-3, log=True)
+    lr2 = trial.suggest_float("lr2", 1e-5, 1e-2, log=True)
     lr2_mult = trial.suggest_float("lr2_mult", 0.1, 3.0, log=True)
     ce_max_w = trial.suggest_float("ce_max_w", 0.01, 1.0, log=True)
 
