@@ -54,6 +54,7 @@ model_path = os.path.join(_repo_root, "models", "ColorMNIST_test")
 os.makedirs(model_path, exist_ok=True)
 torch.backends.cudnn.deterministic = True
 FIXED_KL_LAMBDA = 200.0
+CE_WARMUP_EPOCHS = 5
 
 
 # -- CLI args -----------------------------------------------------------------
@@ -100,7 +101,8 @@ class Net(nn.Module):
         super(Net, self).__init__()
         self.conv1 = nn.Conv2d(3, 20, 5, 1)
         self.conv2 = nn.Conv2d(20, 50, 5, 1)
-        self.fc1 = nn.Linear(4*4*50, 256)
+        # Input is resized to 32x32, so feature map is 5x5 before fc1.
+        self.fc1 = nn.Linear(5*5*50, 256)
         self.fc2 = nn.Linear(256, 10)
 
     def forward(self, x):
@@ -108,7 +110,7 @@ class Net(nn.Module):
         x = F.max_pool2d(x, 2, 2)
         x = F.relu(self.conv2(x))
         x = F.max_pool2d(x, 2, 2)
-        x = x.view(-1, 4*4*50)
+        x = x.view(-1, 5*5*50)
         x = F.relu(self.fc1(x))
         x = self.fc2(x)
         return F.log_softmax(x, dim=1)
@@ -118,7 +120,7 @@ class Net(nn.Module):
         x = F.max_pool2d(x, 2, 2)
         x = F.relu(self.conv2(x))
         x = F.max_pool2d(x, 2, 2)
-        x = x.view(-1, 4*4*50)
+        x = x.view(-1, 5*5*50)
         x = F.relu(self.fc1(x))
         x = self.fc2(x)
         return x
@@ -316,7 +318,7 @@ def _compute_mean_std(dataset, batch_size=512):
 
 # -- Build datasets once (shared across all trials) ---------------------------
 print("Loading datasets ...")
-base_transform = Compose([ToTensor(), Lambda(lambda x: x * 255.0)])
+base_transform = Compose([transforms.Resize((32, 32)), ToTensor(), Lambda(lambda x: x * 255.0)])
 _raw = ImageFolder(os.path.join(png_root, "train"), transform=base_transform)
 _mean, _std = _compute_mean_std(_raw)
 image_transform = Compose([base_transform, transforms.Normalize(_mean.tolist(), _std.tolist())])
@@ -325,7 +327,7 @@ del _raw
 mask_transform = transforms.Compose([
     ExpandWhite(thr=10, radius=3),
     EdgeExtract(thr=10, edge_width=1),
-    transforms.Resize((28, 28)),
+    transforms.Resize((32, 32)),
     transforms.ToTensor(),
     Brighten(8.0),
 ])
@@ -346,7 +348,7 @@ print(f"Full train: {len(full_train)}, Test: {len(test_dataset)}")
 # =============================================================================
 #  Core training function (returns best optim_value and test acc)
 # =============================================================================
-def run_training(seed, lr, lr2, lr2_mult,
+def run_training(seed, lr, lr2, lr2_mult, ce_max_w,
                  epochs=None, trial=None, verbose=True):
     """Train one run.  Returns (best_optim_value, test_acc, best_weights)."""
     if epochs is None:
@@ -380,16 +382,20 @@ def run_training(seed, lr, lr2, lr2_mult,
     best_optim = -100.0
 
     for epoch in range(1, epochs + 1):
-        # Epoch 1: attention-only objective (CE weight = 0), then ramp CE linearly to 1.
-        ce_weight = 0.0 if epochs <= 1 else float(epoch - 1) / float(epochs - 1)
+        # Keep CE off for warmup epochs, then ramp CE linearly up to ce_max_w.
+        if epoch <= CE_WARMUP_EPOCHS:
+            ce_weight = 0.0
+        else:
+            ramp_denom = max(1, epochs - CE_WARMUP_EPOCHS)
+            ce_weight = ce_max_w * float(epoch - CE_WARMUP_EPOCHS) / float(ramp_denom)
 
-        # Reset optimizer after epoch 1 with scaled LRs.
-        if epoch == 2:
+        # Reset optimizer after CE warmup with scaled LRs.
+        if epoch == CE_WARMUP_EPOCHS + 1:
             if verbose:
                 post_base_lr = lr * lr2_mult
                 post_classifier_lr = lr2 * lr2_mult
                 print(
-                    f"  *** Epoch {epoch}: resetting optimizer with post-epoch LR scaling "
+                    f"  *** Epoch {epoch}: resetting optimizer with post-warmup LR scaling "
                     f"(base_lr={post_base_lr:.5g}, cls_lr={post_classifier_lr:.5g}) ***"
                 )
             optimizer = optim.Adam(
@@ -466,7 +472,8 @@ def run_training(seed, lr, lr2, lr2_mult,
 
         if verbose:
             print(f"  Epoch {epoch:>2d}  val_acc={100*val_acc:.1f}%  "
-                  f"rev_kl={val_metric:.4f}  ce_w={ce_weight:.3f}  kl={FIXED_KL_LAMBDA:.1f}  optim={optim_num:.4f}"
+                  f"rev_kl={val_metric:.4f}  ce_w={ce_weight:.3f}/{ce_max_w:.3f}  "
+                  f"kl={FIXED_KL_LAMBDA:.1f}  optim={optim_num:.4f}"
                   f"{'  *best*' if optim_num >= best_optim else ''}")
 
         # Report to Optuna (no pruning)
@@ -502,10 +509,12 @@ def objective(trial):
     lr = trial.suggest_float("lr", 1e-5, 1e-3, log=True)
     lr2 = trial.suggest_float("lr2", 1e-4, 1e-2, log=True)
     lr2_mult = trial.suggest_float("lr2_mult", 0.1, 3.0, log=True)
+    ce_max_w = trial.suggest_float("ce_max_w", 0.01, 1.0, log=True)
 
     print(f"\n{'='*60}")
     print(f"Trial {trial.number}: lr={lr:.5f}, lr2={lr2:.5f}, lr2_mult={lr2_mult:.3f}, "
-          f"fixed_kl={FIXED_KL_LAMBDA:.1f}, val=igrad+rev_kl")
+          f"ce_max_w={ce_max_w:.3f}, fixed_kl={FIXED_KL_LAMBDA:.1f}, "
+          f"ce_warmup={CE_WARMUP_EPOCHS}, val=igrad+rev_kl")
     print(f"{'='*60}")
 
     best_optim, test_acc, _ = run_training(
@@ -513,6 +522,7 @@ def objective(trial):
         lr=lr,
         lr2=lr2,
         lr2_mult=lr2_mult,
+        ce_max_w=ce_max_w,
         trial=trial,
         verbose=True,
     )
@@ -594,6 +604,7 @@ if __name__ == "__main__":
                 lr=bp["lr"],
                 lr2=bp["lr2"],
                 lr2_mult=bp.get("lr2_mult", 1.0),
+                ce_max_w=bp.get("ce_max_w", 1.0),
                 verbose=True,
             )
             seed_results.append({
