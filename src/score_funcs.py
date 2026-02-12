@@ -15,7 +15,12 @@ def cdep(model, data, blobs,model_type = 'cifar'):
 def gradient_sum(im, target, seg ,  model, crit, device='cuda'):
     '''  assume that eveything is already on cuda'''
     im.requires_grad = True
-    grad_params = torch.abs(torch.autograd.grad(crit(model(im), target), im,create_graph = True)[0].sum(dim=1).masked_select(seg.byte())**2).sum()
+    # masked_select expects a boolean mask on newer PyTorch versions.
+    if not torch.is_tensor(seg):
+        seg = torch.as_tensor(seg, device=im.device)
+    seg_mask = seg.to(device=im.device, dtype=torch.bool)
+    grad_map = torch.autograd.grad(crit(model(im), target), im, create_graph=True)[0].sum(dim=1)
+    grad_params = torch.abs(grad_map.masked_select(seg_mask) ** 2).sum()
     return grad_params
 
 
