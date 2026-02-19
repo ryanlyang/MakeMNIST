@@ -21,6 +21,7 @@ import os
 import sys
 import re
 import random
+import csv
 import pickle as pkl
 from copy import deepcopy
 
@@ -80,12 +81,34 @@ parser.add_argument("--val-saliency", type=str, default="cam",
 parser.add_argument("--val-metric", type=str, default="rev_kl",
                     choices=["rev_kl", "fwd_kl", "outside"],
                     help="Validation metric against GT masks.")
+parser.add_argument("--save-trial-checkpoints", action="store_true", default=False,
+                    help="During Phase 1, save best-val and best-optim checkpoints per trial.")
+parser.add_argument("--trial-artifacts-dir", type=str, default=None,
+                    help="Output directory for per-trial checkpoints and summary CSV.")
+parser.add_argument("--trial-summary-csv", type=str, default=None,
+                    help="Per-trial summary CSV path (default: <trial-artifacts-dir>/trial_summary.csv).")
+parser.add_argument("--selector-start", type=str, default="attention",
+                    choices=["attention", "all"],
+                    help="Epoch eligibility for checkpoint selectors.")
+parser.add_argument("--skip-phase2", action="store_true", default=False,
+                    help="Skip Phase 2 seed reruns (useful for trial-scatter sweeps).")
 
 args = parser.parse_args()
 use_cuda = not args.no_cuda and torch.cuda.is_available()
 device = torch.device("cuda" if use_cuda else "cpu")
 loader_kwargs = {"num_workers": 1, "pin_memory": True} if use_cuda else {}
 png_root = args.png_root or os.path.join(_repo_root, "data", "DecoyMNIST_png")
+
+trial_artifacts_dir = None
+trial_ckpt_dir = None
+trial_summary_csv = None
+if args.save_trial_checkpoints:
+    trial_artifacts_dir = args.trial_artifacts_dir or os.path.join(
+        model_path, f"{args.study_name}_trial_artifacts"
+    )
+    trial_ckpt_dir = os.path.join(trial_artifacts_dir, "checkpoints")
+    os.makedirs(trial_ckpt_dir, exist_ok=True)
+    trial_summary_csv = args.trial_summary_csv or os.path.join(trial_artifacts_dir, "trial_summary.csv")
 
 
 # -- Model: original FC LeNet (can learn decoy shortcut) ---------------------
@@ -268,6 +291,46 @@ def input_grad_saliency(model, data, target):
     return sal_norm
 
 
+def save_trial_checkpoint(path, model_state_dict, epoch, selector_name, trial_id):
+    payload = {
+        "trial_id": trial_id,
+        "epoch": epoch,
+        "selector": selector_name,
+        "model_state_dict": model_state_dict,
+    }
+    torch.save(payload, path)
+
+
+def append_trial_summary_row(csv_path, row):
+    fieldnames = [
+        "trial_id",
+        "seed",
+        "kl_lambda",
+        "kl_incr",
+        "attention_epoch",
+        "lr",
+        "lr2",
+        "lr2_mult",
+        "selector_start_mode",
+        "selector_start_epoch",
+        "best_val_acc",
+        "best_val_epoch",
+        "best_optim_value",
+        "best_optim_epoch",
+        "ckpt_val_path",
+        "ckpt_optim_path",
+    ]
+    csv_dir = os.path.dirname(csv_path)
+    if csv_dir:
+        os.makedirs(csv_dir, exist_ok=True)
+    write_header = (not os.path.exists(csv_path)) or (os.path.getsize(csv_path) == 0)
+    with open(csv_path, "a", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        if write_header:
+            writer.writeheader()
+        writer.writerow(row)
+
+
 # -- Build datasets once (shared across all trials) ---------------------------
 print("Loading datasets ...")
 image_transform = Compose([Grayscale(num_output_channels=1), ToTensor(),
@@ -298,8 +361,8 @@ print(f"Full train: {len(full_train)}, Test: {len(test_dataset)}")
 #  Core training function (returns best optim_value and test acc)
 # =============================================================================
 def run_training(seed, kl_lambda, kl_incr, attention_epoch, lr, lr2, lr2_mult,
-                 epochs=None, trial=None, verbose=True):
-    """Train one run.  Returns (best_optim_value, test_acc, best_weights)."""
+                 epochs=None, trial=None, verbose=True, trial_id=None):
+    """Train one run. Returns (best_optim_value, test_acc, best_weights, info)."""
     if epochs is None:
         epochs = args.epochs
 
@@ -327,9 +390,18 @@ def run_training(seed, kl_lambda, kl_incr, attention_epoch, lr, lr2, lr2_mult,
     optimizer = optim.Adam(_get_param_groups(model, lr, lr2), weight_decay=args.weight_decay)
     scheduler = None
 
-    best_model_weights = None
+    best_optim_weights = None
     best_optim = -100.0
+    best_optim_epoch = -1
+    best_val_acc = -1.0
+    best_val_epoch = -1
+    best_val_weights = None
+    ckpt_val_path = None
+    ckpt_optim_path = None
     kl_lambda_real = kl_lambda
+    selector_start_epoch = attention_epoch if args.selector_start == "attention" else 1
+    last_val_acc = 0.0
+    last_optim_num = -100.0
 
     for epoch in range(1, epochs + 1):
         attention_active = (epoch >= attention_epoch) and (kl_lambda > 0)
@@ -348,8 +420,6 @@ def run_training(seed, kl_lambda, kl_incr, attention_epoch, lr, lr2, lr2_mult,
                 weight_decay=args.weight_decay,
             )
             scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.3)
-            best_model_weights = deepcopy(model.state_dict())
-            best_optim = -100.0
             kl_lambda_real = kl_lambda
 
         if epoch > attention_epoch and kl_lambda > 0:
@@ -435,26 +505,64 @@ def run_training(seed, kl_lambda, kl_incr, attention_epoch, lr, lr2, lr2_mult,
         val_acc = running_corrects / total
         val_metric = running_attn_rev / total
         optim_num = val_acc * np.exp(-args.beta * val_metric)
+        last_val_acc = val_acc
+        last_optim_num = optim_num
 
-        if epoch >= attention_epoch and optim_num > best_optim:
+        improved_val = False
+        improved_optim = False
+
+        if epoch >= selector_start_epoch and val_acc > best_val_acc:
+            best_val_acc = val_acc
+            best_val_epoch = epoch
+            best_val_weights = deepcopy(model.state_dict())
+            improved_val = True
+            if args.save_trial_checkpoints and trial_id is not None and trial_ckpt_dir is not None:
+                ckpt_val_path = os.path.join(trial_ckpt_dir, f"trial_{trial_id}_bestVal.ckpt")
+                save_trial_checkpoint(
+                    path=ckpt_val_path,
+                    model_state_dict=best_val_weights,
+                    epoch=epoch,
+                    selector_name="best_val_acc",
+                    trial_id=trial_id,
+                )
+
+        if epoch >= selector_start_epoch and optim_num > best_optim:
             best_optim = optim_num
-            best_model_weights = deepcopy(model.state_dict())
-
-        if epoch < attention_epoch:
-            best_model_weights = deepcopy(model.state_dict())
+            best_optim_epoch = epoch
+            best_optim_weights = deepcopy(model.state_dict())
+            improved_optim = True
+            if args.save_trial_checkpoints and trial_id is not None and trial_ckpt_dir is not None:
+                ckpt_optim_path = os.path.join(trial_ckpt_dir, f"trial_{trial_id}_bestOptim.ckpt")
+                save_trial_checkpoint(
+                    path=ckpt_optim_path,
+                    model_state_dict=best_optim_weights,
+                    epoch=epoch,
+                    selector_name="best_optim_value",
+                    trial_id=trial_id,
+                )
 
         if verbose:
             print(f"  Epoch {epoch:>2d}  val_acc={100*val_acc:.1f}%  "
                   f"{args.val_metric}={val_metric:.4f}  optim={optim_num:.4f}"
-                  f"{'  *best*' if optim_num >= best_optim else ''}")
+                  f"{'  *best_val*' if improved_val else ''}"
+                  f"{'  *best_optim*' if improved_optim else ''}")
 
         # Report to Optuna (no pruning)
         if trial is not None:
             trial.report(best_optim, epoch)
 
+    if best_val_weights is None:
+        best_val_acc = last_val_acc
+        best_val_epoch = epochs
+        best_val_weights = deepcopy(model.state_dict())
+
+    if best_optim_weights is None:
+        best_optim = last_optim_num
+        best_optim_epoch = epochs
+        best_optim_weights = deepcopy(model.state_dict())
+
     # -- Test with best-optim checkpoint ----------------------------------
-    if best_model_weights is not None:
-        model.load_state_dict(best_model_weights)
+    model.load_state_dict(best_optim_weights)
 
     model.eval()
     correct = 0
@@ -471,7 +579,18 @@ def run_training(seed, kl_lambda, kl_incr, attention_epoch, lr, lr2, lr2_mult,
         print(f"  >> best optim_value = {best_optim:.4f},  "
               f"test_acc @ best_optim = {test_acc:.1f}%")
 
-    return best_optim, test_acc, best_model_weights
+    info = {
+        "best_val_acc": float(best_val_acc),
+        "best_val_epoch": int(best_val_epoch),
+        "best_optim_value": float(best_optim),
+        "best_optim_epoch": int(best_optim_epoch),
+        "selector_start_mode": args.selector_start,
+        "selector_start_epoch": int(selector_start_epoch),
+        "ckpt_val_path": ckpt_val_path or "",
+        "ckpt_optim_path": ckpt_optim_path or "",
+    }
+
+    return best_optim, test_acc, best_optim_weights, info
 
 
 # =============================================================================
@@ -490,7 +609,7 @@ def objective(trial):
           f"attn_epoch={attention_epoch}, lr={lr:.5f}, lr2={lr2:.5f}, lr2_mult={lr2_mult:.3f}")
     print(f"{'='*60}")
 
-    best_optim, test_acc, _ = run_training(
+    best_optim, test_acc, _, info = run_training(
         seed=42,
         kl_lambda=kl_lambda,
         kl_incr=kl_incr,
@@ -500,7 +619,30 @@ def objective(trial):
         lr2_mult=lr2_mult,
         trial=trial,
         verbose=True,
+        trial_id=trial.number,
     )
+    if args.save_trial_checkpoints and trial_summary_csv is not None:
+        append_trial_summary_row(
+            trial_summary_csv,
+            {
+                "trial_id": trial.number,
+                "seed": 42,
+                "kl_lambda": kl_lambda,
+                "kl_incr": kl_incr,
+                "attention_epoch": attention_epoch,
+                "lr": lr,
+                "lr2": lr2,
+                "lr2_mult": lr2_mult,
+                "selector_start_mode": info["selector_start_mode"],
+                "selector_start_epoch": info["selector_start_epoch"],
+                "best_val_acc": info["best_val_acc"],
+                "best_val_epoch": info["best_val_epoch"],
+                "best_optim_value": info["best_optim_value"],
+                "best_optim_epoch": info["best_optim_epoch"],
+                "ckpt_val_path": info["ckpt_val_path"],
+                "ckpt_optim_path": info["ckpt_optim_path"],
+            },
+        )
     print(f"Trial {trial.number} finished: optim={best_optim:.4f}, test_acc={test_acc:.1f}%")
     return best_optim
 
@@ -548,6 +690,14 @@ if __name__ == "__main__":
 
     bp = best.params
 
+    if args.skip_phase2:
+        print("\nSkipping Phase 2 (--skip-phase2 set).")
+        if args.save_trial_checkpoints and trial_summary_csv is not None:
+            print(f"Per-trial summary CSV: {trial_summary_csv}")
+            if trial_ckpt_dir is not None:
+                print(f"Per-trial checkpoint dir: {trial_ckpt_dir}")
+        sys.exit(0)
+
     # =================================================================
     #  Phase 2: Evaluate best hyperparameters on all GT paths
     # =================================================================
@@ -574,7 +724,7 @@ if __name__ == "__main__":
         for i in range(args.n_seeds):
             seed = i
             print(f"\n--- Seed {seed} ({gt_name}) ---")
-            best_optim, test_acc, best_weights = run_training(
+            best_optim, test_acc, best_weights, _ = run_training(
                 seed=seed,
                 kl_lambda=bp["kl_lambda"],
                 kl_incr=bp["kl_lambda"] / 10.0,
