@@ -105,6 +105,15 @@ parser.add_argument("--lr2-mult-min", type=float, default=1e-3)
 parser.add_argument("--lr2-mult-max", type=float, default=1.0)
 parser.add_argument("--kl-incr-fixed", type=float, default=0.0,
                     help="Fixed KL increment added after attention epoch.")
+parser.add_argument("--manual-kl-sweep", action="store_true", default=False,
+                    help="Bypass Optuna and run a fixed-parameter KL-lambda log sweep.")
+parser.add_argument("--manual-kl-min", type=float, default=0.01)
+parser.add_argument("--manual-kl-max", type=float, default=100.0)
+parser.add_argument("--manual-num-points", type=int, default=50)
+parser.add_argument("--manual-attention-epoch", type=int, default=15)
+parser.add_argument("--manual-lr", type=float, default=1e-5)
+parser.add_argument("--manual-lr2", type=float, default=5e-5)
+parser.add_argument("--manual-lr2-mult", type=float, default=0.1)
 
 args = parser.parse_args()
 if args.kl_lambda_min > args.kl_lambda_max:
@@ -117,6 +126,12 @@ if args.lr2_min > args.lr2_max:
     raise ValueError("lr2-min must be <= lr2-max")
 if args.lr2_mult_min > args.lr2_mult_max:
     raise ValueError("lr2-mult-min must be <= lr2-mult-max")
+if args.manual_kl_min > args.manual_kl_max:
+    raise ValueError("manual-kl-min must be <= manual-kl-max")
+if args.manual_kl_min <= 0.0:
+    raise ValueError("manual-kl-min must be > 0 for log spacing")
+if args.manual_num_points < 1:
+    raise ValueError("manual-num-points must be >= 1")
 use_cuda = not args.no_cuda and torch.cuda.is_available()
 device = torch.device("cuda" if use_cuda else "cpu")
 loader_kwargs = {"num_workers": 1, "pin_memory": True} if use_cuda else {}
@@ -680,7 +695,87 @@ def build_dataset_with_gt(gt_path):
     )
 
 
+def run_manual_kl_sweep():
+    print(f"\n{'#'*60}")
+    print("  Manual KL sweep mode (no Optuna)")
+    print(f"{'#'*60}")
+    print(f"kl_lambda: logspace({args.manual_kl_min}, {args.manual_kl_max}), points={args.manual_num_points}")
+    print(
+        "fixed params: "
+        f"attention_epoch={args.manual_attention_epoch}, "
+        f"lr={args.manual_lr}, lr2={args.manual_lr2}, "
+        f"lr2_mult={args.manual_lr2_mult}, kl_incr={args.kl_incr_fixed}"
+    )
+    print(f"selector_start={args.selector_start}")
+    if args.save_trial_checkpoints and trial_summary_csv is not None:
+        print(f"trial_summary_csv={trial_summary_csv}")
+        if trial_ckpt_dir is not None:
+            print(f"trial_ckpt_dir={trial_ckpt_dir}")
+    else:
+        print("WARNING: --save-trial-checkpoints is off; no selector-scatter artifacts will be saved.")
+
+    kl_values = np.logspace(
+        np.log10(args.manual_kl_min),
+        np.log10(args.manual_kl_max),
+        num=args.manual_num_points,
+        dtype=np.float64,
+    )
+
+    for idx, kl_lambda in enumerate(kl_values):
+        print(f"\n{'='*60}")
+        print(f"Manual run {idx + 1}/{len(kl_values)}: kl_lambda={kl_lambda:.8f}")
+        print(f"{'='*60}")
+        best_optim, test_acc, _, info = run_training(
+            seed=42,
+            kl_lambda=float(kl_lambda),
+            kl_incr=args.kl_incr_fixed,
+            attention_epoch=args.manual_attention_epoch,
+            lr=args.manual_lr,
+            lr2=args.manual_lr2,
+            lr2_mult=args.manual_lr2_mult,
+            trial=None,
+            verbose=True,
+            trial_id=f"manual_{idx}",
+        )
+        if args.save_trial_checkpoints and trial_summary_csv is not None:
+            append_trial_summary_row(
+                trial_summary_csv,
+                {
+                    "trial_id": f"manual_{idx}",
+                    "seed": 42,
+                    "kl_lambda": float(kl_lambda),
+                    "kl_incr": args.kl_incr_fixed,
+                    "attention_epoch": args.manual_attention_epoch,
+                    "lr": args.manual_lr,
+                    "lr2": args.manual_lr2,
+                    "lr2_mult": args.manual_lr2_mult,
+                    "selector_start_mode": info["selector_start_mode"],
+                    "selector_start_epoch": info["selector_start_epoch"],
+                    "best_val_acc": info["best_val_acc"],
+                    "best_val_epoch": info["best_val_epoch"],
+                    "best_optim_value": info["best_optim_value"],
+                    "best_optim_epoch": info["best_optim_epoch"],
+                    "ckpt_val_path": info["ckpt_val_path"],
+                    "ckpt_optim_path": info["ckpt_optim_path"],
+                },
+            )
+        print(
+            f"Manual run {idx + 1} done: best_optim={best_optim:.4f}, "
+            f"test_acc(best_optim)={test_acc:.2f}%"
+        )
+
+    print("\nManual KL sweep complete.")
+    if args.save_trial_checkpoints and trial_summary_csv is not None:
+        print(f"Per-trial summary CSV: {trial_summary_csv}")
+        if trial_ckpt_dir is not None:
+            print(f"Per-trial checkpoint dir: {trial_ckpt_dir}")
+
+
 if __name__ == "__main__":
+    if args.manual_kl_sweep:
+        run_manual_kl_sweep()
+        sys.exit(0)
+
     db_path = args.db_path or os.path.join(model_path, f"{args.study_name}.db")
     storage = f"sqlite:///{db_path}"
     print(f"\nOptuna storage: {storage}")

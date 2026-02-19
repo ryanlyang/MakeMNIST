@@ -6,8 +6,8 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
-#SBATCH --output=/home/ryreu/guided_cnn/logsMNIST/optuna_decoy_selector_scatter_%j.out
-#SBATCH --error=/home/ryreu/guided_cnn/logsMNIST/optuna_decoy_selector_scatter_%j.err
+#SBATCH --output=/home/ryreu/guided_cnn/logsMNIST/manual_decoy_selector_scatter_%j.out
+#SBATCH --error=/home/ryreu/guided_cnn/logsMNIST/manual_decoy_selector_scatter_%j.err
 #SBATCH --signal=TERM@120
 
 set -Eeuo pipefail
@@ -19,8 +19,7 @@ DATA_PATH="${REPO_ROOT}/data/DecoyMNIST_png"
 GT_PATH="/home/ryreu/guided_cnn/MNIST_AGAIN/DecoyGen/LearningToLook/code/WeCLIPPlus/results_decoy_mnist/val/prediction_cmap"
 
 RUN_TAG="$(date +%Y%m%d_%H%M%S)_${SLURM_JOB_ID:-manual}"
-STUDY_NAME="decoy_param_selector_scatter_${RUN_TAG}"
-DB_PATH="${REPO_ROOT}/models/DecoyMNIST/${STUDY_NAME}.db"
+STUDY_NAME="decoy_manual_kl_selector_scatter_${RUN_TAG}"
 ARTIFACT_DIR="${REPO_ROOT}/models/DecoyMNIST/${STUDY_NAME}_artifacts"
 SUMMARY_CSV="${ARTIFACT_DIR}/trial_summary.csv"
 EVAL_CSV="${ARTIFACT_DIR}/trial_eval.csv"
@@ -41,35 +40,28 @@ cd "${REPO_ROOT}"
 echo "[$(date)] Host: $(hostname)"
 which python
 
-echo "Running Decoy Optuna sweep with dual trial selectors..."
+echo "Running manual Decoy KL sweep (no Optuna)..."
 python -u mnist/run_decoy_param_optuna.py \
+  --manual-kl-sweep \
   --png-root "${DATA_PATH}" \
   --gt-path "${GT_PATH}" \
   --beta 0.1 \
-  --lr-min 1e-5 \
-  --lr-max 5e-2 \
-  --lr2-min 1e-5 \
-  --lr2-max 5e-2 \
-  --lr2-mult-min 0.1 \
-  --lr2-mult-max 3.0 \
-  --attention-epoch-min 1 \
-  --attention-epoch-max 29 \
-  --kl-lambda-min 1.0 \
-  --kl-lambda-max 500.0 \
+  --manual-attention-epoch 15 \
+  --manual-lr 1e-5 \
+  --manual-lr2 5e-5 \
+  --manual-lr2-mult 0.1 \
+  --manual-kl-min 0.01 \
+  --manual-kl-max 100.0 \
+  --manual-num-points 50 \
   --kl-incr-fixed 0.0 \
   --val-saliency igrad \
   --val-metric rev_kl \
   --selector-start attention \
   --save-trial-checkpoints \
   --trial-artifacts-dir "${ARTIFACT_DIR}" \
-  --trial-summary-csv "${SUMMARY_CSV}" \
-  --n-trials 50 \
-  --n-seeds 5 \
-  --skip-phase2 \
-  --study-name "${STUDY_NAME}" \
-  --db-path "${DB_PATH}"
+  --trial-summary-csv "${SUMMARY_CSV}"
 
-echo "Evaluating saved per-trial checkpoints on test..."
+echo "Evaluating saved per-run checkpoints on test..."
 python -u mnist/eval_decoy_trial_checkpoints.py \
   --summary-csv "${SUMMARY_CSV}" \
   --png-root "${DATA_PATH}" \
