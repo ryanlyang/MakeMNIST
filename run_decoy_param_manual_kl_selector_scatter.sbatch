@@ -47,8 +47,8 @@ python -u mnist/run_decoy_param_optuna.py \
   --gt-path "${GT_PATH}" \
   --beta 0.1 \
   --manual-attention-epoch 15 \
-  --manual-lr 1e-5 \
-  --manual-lr2 5e-5 \
+  --manual-lr 1e-3 \
+  --manual-lr2 5e-3 \
   --manual-lr2-mult 0.1 \
   --manual-kl-min 0.01 \
   --manual-kl-max 100.0 \
