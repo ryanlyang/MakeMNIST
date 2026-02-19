@@ -55,7 +55,6 @@ from params_save import S
 model_path = os.path.join(_repo_root, "models", "DecoyMNIST")
 os.makedirs(model_path, exist_ok=True)
 torch.backends.cudnn.deterministic = True
-FIXED_KL_INCR = 0.0
 
 
 # -- CLI args -----------------------------------------------------------------
@@ -94,8 +93,30 @@ parser.add_argument("--selector-start", type=str, default="attention",
                     help="Epoch eligibility for checkpoint selectors.")
 parser.add_argument("--skip-phase2", action="store_true", default=False,
                     help="Skip Phase 2 seed reruns (useful for trial-scatter sweeps).")
+parser.add_argument("--kl-lambda-min", type=float, default=1.0)
+parser.add_argument("--kl-lambda-max", type=float, default=500.0)
+parser.add_argument("--attention-epoch-min", type=int, default=1)
+parser.add_argument("--attention-epoch-max", type=int, default=29)
+parser.add_argument("--lr-min", type=float, default=1e-5)
+parser.add_argument("--lr-max", type=float, default=5e-2)
+parser.add_argument("--lr2-min", type=float, default=1e-5)
+parser.add_argument("--lr2-max", type=float, default=5e-2)
+parser.add_argument("--lr2-mult-min", type=float, default=1e-3)
+parser.add_argument("--lr2-mult-max", type=float, default=1.0)
+parser.add_argument("--kl-incr-fixed", type=float, default=0.0,
+                    help="Fixed KL increment added after attention epoch.")
 
 args = parser.parse_args()
+if args.kl_lambda_min > args.kl_lambda_max:
+    raise ValueError("kl-lambda-min must be <= kl-lambda-max")
+if args.attention_epoch_min > args.attention_epoch_max:
+    raise ValueError("attention-epoch-min must be <= attention-epoch-max")
+if args.lr_min > args.lr_max:
+    raise ValueError("lr-min must be <= lr-max")
+if args.lr2_min > args.lr2_max:
+    raise ValueError("lr2-min must be <= lr2-max")
+if args.lr2_mult_min > args.lr2_mult_max:
+    raise ValueError("lr2-mult-min must be <= lr2-mult-max")
 use_cuda = not args.no_cuda and torch.cuda.is_available()
 device = torch.device("cuda" if use_cuda else "cpu")
 loader_kwargs = {"num_workers": 1, "pin_memory": True} if use_cuda else {}
@@ -599,12 +620,12 @@ def run_training(seed, kl_lambda, kl_incr, attention_epoch, lr, lr2, lr2_mult,
 #  Phase 1: Optuna sweep
 # =============================================================================
 def objective(trial):
-    kl_lambda = trial.suggest_float("kl_lambda", 1.0, 500.0, log=True)
-    kl_incr = FIXED_KL_INCR
-    attention_epoch = trial.suggest_int("attention_epoch", 1, 29)
-    lr = trial.suggest_float("lr", 1e-5, 5e-2, log=True)
-    lr2 = trial.suggest_float("lr2", 1e-5, 5e-2, log=True)
-    lr2_mult = trial.suggest_float("lr2_mult", 1e-3, 1.0, log=True)
+    kl_lambda = trial.suggest_float("kl_lambda", args.kl_lambda_min, args.kl_lambda_max, log=True)
+    kl_incr = args.kl_incr_fixed
+    attention_epoch = trial.suggest_int("attention_epoch", args.attention_epoch_min, args.attention_epoch_max)
+    lr = trial.suggest_float("lr", args.lr_min, args.lr_max, log=True)
+    lr2 = trial.suggest_float("lr2", args.lr2_min, args.lr2_max, log=True)
+    lr2_mult = trial.suggest_float("lr2_mult", args.lr2_mult_min, args.lr2_mult_max, log=True)
 
     print(f"\n{'='*60}")
     print(f"Trial {trial.number}: kl_lambda={kl_lambda:.2f}, kl_incr={kl_incr:.2f} (fixed), "
@@ -729,7 +750,7 @@ if __name__ == "__main__":
             best_optim, test_acc, best_weights, _ = run_training(
                 seed=seed,
                 kl_lambda=bp["kl_lambda"],
-                kl_incr=FIXED_KL_INCR,
+                kl_incr=args.kl_incr_fixed,
                 attention_epoch=bp["attention_epoch"],
                 lr=bp["lr"],
                 lr2=bp["lr2"],

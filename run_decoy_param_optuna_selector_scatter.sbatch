@@ -46,6 +46,17 @@ python -u mnist/run_decoy_param_optuna.py \
   --png-root "${DATA_PATH}" \
   --gt-path "${GT_PATH}" \
   --beta 0.1 \
+  --lr-min 1e-5 \
+  --lr-max 5e-2 \
+  --lr2-min 1e-5 \
+  --lr2-max 5e-2 \
+  --lr2-mult-min 1e-3 \
+  --lr2-mult-max 1.0 \
+  --attention-epoch-min 1 \
+  --attention-epoch-max 29 \
+  --kl-lambda-min 1.0 \
+  --kl-lambda-max 500.0 \
+  --kl-incr-fixed 0.0 \
   --val-saliency igrad \
   --val-metric rev_kl \
   --selector-start attention \
