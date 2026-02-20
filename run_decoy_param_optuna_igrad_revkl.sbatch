@@ -17,6 +17,7 @@ CONDA_ENV="learntolook"
 LOG_DIR="/home/ryreu/guided_cnn/logsMNIST"
 GT_PATH="/home/ryreu/guided_cnn/MNIST_AGAIN/DecoyGen/LearningToLook/code/WeCLIPPlus/results_decoy_mnist/val/prediction_cmap"
 RUN_TAG="$(date +%Y%m%d_%H%M%S)_${SLURM_JOB_ID:-manual}"
+OPTUNA_SEED="$(date +%s)"
 STUDY_NAME="decoy_param_optuna_igrad_revkl_${RUN_TAG}"
 DB_PATH="${REPO_ROOT}/models/DecoyMNIST/${STUDY_NAME}.db"
 
@@ -41,7 +42,9 @@ python -u mnist/run_decoy_param_optuna.py \
   --beta 10 \
   --val-saliency igrad \
   --val-metric fwd_kl \
-  --n-trials 50 \
+  --n-trials 25 \
   --n-seeds 5 \
+  --objective-seed 137 \
+  --optuna-seed "${OPTUNA_SEED}" \
   --study-name "${STUDY_NAME}" \
   --db-path "${DB_PATH}"

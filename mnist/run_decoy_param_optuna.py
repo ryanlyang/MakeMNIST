@@ -75,6 +75,10 @@ parser.add_argument("--n-trials", type=int, default=100,
                     help="Number of Optuna trials to run (default: 100)")
 parser.add_argument("--n-seeds", type=int, default=5,
                     help="Number of seeds for final evaluation per GT path (default: 5)")
+parser.add_argument("--objective-seed", type=int, default=42,
+                    help="Seed used for trial training/evaluation during Optuna objective.")
+parser.add_argument("--optuna-seed", type=int, default=None,
+                    help="Seed for Optuna TPE sampler (default: random).")
 parser.add_argument("--study-name", type=str, default="decoymnist_gradcam")
 parser.add_argument("--db-path", type=str, default=None,
                     help="SQLite path for Optuna storage (default: auto)")
@@ -687,7 +691,7 @@ def objective(trial):
     print(f"{'='*60}")
 
     best_optim, test_acc, _, info = run_training(
-        seed=42,
+        seed=args.objective_seed,
         kl_lambda=kl_lambda,
         kl_incr=kl_incr,
         attention_epoch=attention_epoch,
@@ -703,7 +707,7 @@ def objective(trial):
             trial_summary_csv,
             {
                 "trial_id": trial.number,
-                "seed": 42,
+                "seed": args.objective_seed,
                 "kl_lambda": kl_lambda,
                 "kl_incr": kl_incr,
                 "attention_epoch": attention_epoch,
@@ -825,11 +829,13 @@ if __name__ == "__main__":
     storage = f"sqlite:///{db_path}"
     print(f"\nOptuna storage: {storage}")
 
+    sampler = optuna.samplers.TPESampler(seed=args.optuna_seed)
     study = optuna.create_study(
         study_name=args.study_name,
         storage=storage,
         direction="maximize",
         load_if_exists=True,
+        sampler=sampler,
         pruner=optuna.pruners.NopPruner(),  # No pruning
     )
 
