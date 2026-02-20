@@ -45,7 +45,7 @@ echo "Running Decoy Optuna sweep with dual trial selectors..."
 python -u mnist/run_decoy_param_optuna.py \
   --png-root "${DATA_PATH}" \
   --gt-path "${GT_PATH}" \
-  --beta 0.1 \
+  --beta 10 \
   --lr-min 1e-5 \
   --lr-max 5e-2 \
   --lr2-min 1e-5 \
@@ -58,7 +58,7 @@ python -u mnist/run_decoy_param_optuna.py \
   --kl-lambda-max 500.0 \
   --kl-incr-fixed 0.0 \
   --val-saliency igrad \
-  --val-metric rev_kl \
+  --val-metric fwd_kl \
   --selector-start attention \
   --save-trial-checkpoints \
   --trial-artifacts-dir "${ARTIFACT_DIR}" \

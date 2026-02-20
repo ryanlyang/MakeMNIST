@@ -67,7 +67,7 @@ parser.add_argument("--epochs", type=int, default=30)
 parser.add_argument("--batch-size", type=int, default=64)
 parser.add_argument("--test-batch-size", type=int, default=1000)
 parser.add_argument("--weight-decay", type=float, default=1e-4)
-parser.add_argument("--beta", type=float, default=0.3)
+parser.add_argument("--beta", type=float, default=10.0)
 parser.add_argument("--val-frac", type=float, default=0.16)
 parser.add_argument("--no-cuda", action="store_true", default=False)
 parser.add_argument("--log-interval", type=int, default=100)
@@ -78,10 +78,10 @@ parser.add_argument("--n-seeds", type=int, default=5,
 parser.add_argument("--study-name", type=str, default="decoymnist_gradcam")
 parser.add_argument("--db-path", type=str, default=None,
                     help="SQLite path for Optuna storage (default: auto)")
-parser.add_argument("--val-saliency", type=str, default="cam",
+parser.add_argument("--val-saliency", type=str, default="igrad",
                     choices=["cam", "igrad"],
-                    help="Saliency used for validation metric: Grad-CAM or input gradients.")
-parser.add_argument("--val-metric", type=str, default="rev_kl",
+                    help="Saliency used for validation metric: Grad-CAM or Integrated Gradients.")
+parser.add_argument("--val-metric", type=str, default="fwd_kl",
                     choices=["rev_kl", "fwd_kl", "outside"],
                     help="Validation metric against GT masks.")
 parser.add_argument("--save-trial-checkpoints", action="store_true", default=False,
@@ -116,6 +116,8 @@ parser.add_argument("--manual-attention-epoch", type=int, default=15)
 parser.add_argument("--manual-lr", type=float, default=1e-5)
 parser.add_argument("--manual-lr2", type=float, default=5e-5)
 parser.add_argument("--manual-lr2-mult", type=float, default=0.1)
+parser.add_argument("--ig-steps", type=int, default=16,
+                    help="Integrated Gradients interpolation steps for val saliency.")
 
 args = parser.parse_args()
 if args.kl_lambda_min > args.kl_lambda_max:
@@ -134,6 +136,15 @@ if args.manual_kl_min <= 0.0:
     raise ValueError("manual-kl-min must be > 0 for log spacing")
 if args.manual_num_points < 1:
     raise ValueError("manual-num-points must be >= 1")
+if args.ig_steps < 1:
+    raise ValueError("ig-steps must be >= 1")
+if args.beta != 10.0:
+    print("Forcing beta=10.0 for Decoy log-optim objective.")
+args.beta = 10.0
+if args.val_saliency != "igrad" or args.val_metric != "fwd_kl":
+    print("Forcing validation strategy to val_saliency=igrad (Integrated Gradients) and val_metric=fwd_kl.")
+args.val_saliency = "igrad"
+args.val_metric = "fwd_kl"
 use_cuda = not args.no_cuda and torch.cuda.is_available()
 device = torch.device("cuda" if use_cuda else "cpu")
 loader_kwargs = {"num_workers": 1, "pin_memory": True} if use_cuda else {}
@@ -317,17 +328,33 @@ def compute_outside_mass(saliency, gt_masks):
 
 
 def input_grad_saliency(model, data, target):
-    """Compute |d(logit_target)/d(input)| saliency, normalized to [0,1]."""
-    data = data.requires_grad_(True)
-    model.zero_grad()
-    logits = model.base.logits(data)
-    class_scores = logits[torch.arange(len(target), device=device), target]
-    class_scores.sum().backward()
-    grads = data.grad.detach().abs().sum(dim=1)  # B,H,W
-    flat = grads.view(grads.size(0), -1)
+    """Backward-compatible alias: now uses Integrated Gradients saliency."""
+    return integrated_grad_saliency(model, data, target, steps=args.ig_steps)
+
+
+def integrated_grad_saliency(model, data, target, steps=16):
+    """Compute Integrated Gradients saliency, normalized to [0,1]."""
+    x = data.detach()
+    baseline = torch.zeros_like(x)
+    delta = x - baseline
+    total_grads = torch.zeros_like(x)
+
+    for step in range(1, steps + 1):
+        alpha = float(step) / float(steps)
+        x_step = (baseline + alpha * delta).detach().requires_grad_(True)
+        logits = model.base.logits(x_step)
+        class_scores = logits[torch.arange(len(target), device=x_step.device), target]
+        grads = torch.autograd.grad(
+            class_scores.sum(), x_step, retain_graph=False, create_graph=False
+        )[0]
+        total_grads += grads
+
+    avg_grads = total_grads / float(steps)
+    ig_attr = (delta * avg_grads).detach().abs().sum(dim=1)  # B,H,W
+    flat = ig_attr.view(ig_attr.size(0), -1)
     mn, _ = flat.min(dim=1, keepdim=True)
     mx, _ = flat.max(dim=1, keepdim=True)
-    sal_norm = ((flat - mn) / (mx - mn + 1e-8)).view_as(grads)
+    sal_norm = ((flat - mn) / (mx - mn + 1e-8)).view_as(ig_attr)
     return sal_norm
 
 
@@ -523,8 +550,8 @@ def run_training(seed, kl_lambda, kl_incr, attention_epoch, lr, lr2, lr2_mult,
                 class_scores.sum().backward()
                 sal_norm = model.grad_cam(target)
             else:
-                # Input gradients (RRR-style)
-                sal_norm = input_grad_saliency(model, data, target)
+                # Integrated Gradients (IG)
+                sal_norm = integrated_grad_saliency(model, data, target, steps=args.ig_steps)
 
             gt_small = F.interpolate(gt_masks, size=sal_norm.shape[1:],
                                      mode="nearest").squeeze(1)

@@ -38,8 +38,9 @@ which python
 
 python -u mnist/run_decoy_param_optuna.py \
   --gt-path "${GT_PATH}" \
+  --beta 10 \
   --val-saliency igrad \
-  --val-metric rev_kl \
+  --val-metric fwd_kl \
   --n-trials 50 \
   --n-seeds 5 \
   --study-name "${STUDY_NAME}" \

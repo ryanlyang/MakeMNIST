@@ -54,6 +54,7 @@ python -u mnist/run_decoy_param_optuna.py \
   --manual-kl-max 100.0 \
   --manual-num-points 10 \
   --kl-incr-fixed 0.0 \
+  --ig-steps 16 \
   --val-saliency igrad \
   --val-metric fwd_kl \
   --selector-start attention \
