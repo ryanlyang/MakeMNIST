@@ -40,6 +40,8 @@ from PIL import Image
 
 import optuna
 
+LOG_OPTIM_EPS = 1e-12
+
 # -- GT paths for multi-mask evaluation ---------------------------------------
 GT_PATHS = {
     "WeCLIP": "/home/ryreu/guided_cnn/MNIST_AGAIN/DecoyGen/LearningToLook/code/WeCLIPPlus/results_decoy_mnist/val/prediction_cmap",
@@ -353,6 +355,7 @@ def append_trial_summary_row(csv_path, row):
         "selector_start_epoch",
         "best_val_acc",
         "best_val_epoch",
+        "best_log_optim",
         "best_optim_value",
         "best_optim_epoch",
         "ckpt_val_path",
@@ -429,7 +432,8 @@ def run_training(seed, kl_lambda, kl_incr, attention_epoch, lr, lr2, lr2_mult,
     scheduler = None
 
     best_optim_weights = None
-    best_optim = -100.0
+    best_log_optim = -np.inf
+    best_optim = 0.0
     best_optim_epoch = -1
     best_val_acc = -1.0
     best_val_epoch = -1
@@ -439,7 +443,7 @@ def run_training(seed, kl_lambda, kl_incr, attention_epoch, lr, lr2, lr2_mult,
     kl_lambda_real = kl_lambda
     selector_start_epoch = attention_epoch if args.selector_start == "attention" else 1
     last_val_acc = 0.0
-    last_optim_num = -100.0
+    last_log_optim = -np.inf
 
     for epoch in range(1, epochs + 1):
         attention_active = (epoch >= attention_epoch) and (kl_lambda > 0)
@@ -542,9 +546,13 @@ def run_training(seed, kl_lambda, kl_incr, attention_epoch, lr, lr2, lr2_mult,
 
         val_acc = running_corrects / total
         val_metric = running_attn_rev / total
-        optim_num = val_acc * np.exp(-args.beta * val_metric)
+        if val_acc <= 0.0:
+            log_optim = -np.inf
+        else:
+            log_optim = np.log(max(val_acc, LOG_OPTIM_EPS)) - args.beta * val_metric
+        optim_num = float(np.exp(np.clip(log_optim, -700.0, 50.0)))
         last_val_acc = val_acc
-        last_optim_num = optim_num
+        last_log_optim = log_optim
 
         improved_val = False
         improved_optim = False
@@ -564,7 +572,8 @@ def run_training(seed, kl_lambda, kl_incr, attention_epoch, lr, lr2, lr2_mult,
                     trial_id=trial_id,
                 )
 
-        if epoch >= selector_start_epoch and optim_num > best_optim:
+        if epoch >= selector_start_epoch and log_optim > best_log_optim:
+            best_log_optim = log_optim
             best_optim = optim_num
             best_optim_epoch = epoch
             best_optim_weights = deepcopy(model.state_dict())
@@ -581,13 +590,14 @@ def run_training(seed, kl_lambda, kl_incr, attention_epoch, lr, lr2, lr2_mult,
 
         if verbose:
             print(f"  Epoch {epoch:>2d}  val_acc={100*val_acc:.1f}%  "
-                  f"{args.val_metric}={val_metric:.4f}  optim={optim_num:.4f}"
+                  f"{args.val_metric}={val_metric:.4f}  "
+                  f"log_optim={log_optim:.4f}  optim={optim_num:.6f}"
                   f"{'  *best_val*' if improved_val else ''}"
                   f"{'  *best_optim*' if improved_optim else ''}")
 
         # Report to Optuna (no pruning)
         if trial is not None:
-            trial.report(best_optim, epoch)
+            trial.report(best_log_optim, epoch)
 
     if best_val_weights is None:
         best_val_acc = last_val_acc
@@ -595,7 +605,8 @@ def run_training(seed, kl_lambda, kl_incr, attention_epoch, lr, lr2, lr2_mult,
         best_val_weights = deepcopy(model.state_dict())
 
     if best_optim_weights is None:
-        best_optim = last_optim_num
+        best_log_optim = last_log_optim
+        best_optim = float(np.exp(np.clip(best_log_optim, -700.0, 50.0)))
         best_optim_epoch = epochs
         best_optim_weights = deepcopy(model.state_dict())
 
@@ -614,12 +625,13 @@ def run_training(seed, kl_lambda, kl_incr, attention_epoch, lr, lr2, lr2_mult,
     test_acc = 100.0 * correct / total
 
     if verbose:
-        print(f"  >> best optim_value = {best_optim:.4f},  "
+        print(f"  >> best log_optim = {best_log_optim:.4f}, best optim_value = {best_optim:.6f},  "
               f"test_acc @ best_optim = {test_acc:.1f}%")
 
     info = {
         "best_val_acc": float(best_val_acc),
         "best_val_epoch": int(best_val_epoch),
+        "best_log_optim": float(best_log_optim),
         "best_optim_value": float(best_optim),
         "best_optim_epoch": int(best_optim_epoch),
         "selector_start_mode": args.selector_start,
@@ -675,14 +687,18 @@ def objective(trial):
                 "selector_start_epoch": info["selector_start_epoch"],
                 "best_val_acc": info["best_val_acc"],
                 "best_val_epoch": info["best_val_epoch"],
+                "best_log_optim": info["best_log_optim"],
                 "best_optim_value": info["best_optim_value"],
                 "best_optim_epoch": info["best_optim_epoch"],
                 "ckpt_val_path": info["ckpt_val_path"],
                 "ckpt_optim_path": info["ckpt_optim_path"],
             },
         )
-    print(f"Trial {trial.number} finished: optim={best_optim:.4f}, test_acc={test_acc:.1f}%")
-    return best_optim
+    print(
+        f"Trial {trial.number} finished: log_optim={info['best_log_optim']:.4f}, "
+        f"optim={best_optim:.6f}, test_acc={test_acc:.1f}%"
+    )
+    return info["best_log_optim"]
 
 
 def build_dataset_with_gt(gt_path):
@@ -753,6 +769,7 @@ def run_manual_kl_sweep():
                     "selector_start_epoch": info["selector_start_epoch"],
                     "best_val_acc": info["best_val_acc"],
                     "best_val_epoch": info["best_val_epoch"],
+                    "best_log_optim": info["best_log_optim"],
                     "best_optim_value": info["best_optim_value"],
                     "best_optim_epoch": info["best_optim_epoch"],
                     "ckpt_val_path": info["ckpt_val_path"],
@@ -760,7 +777,8 @@ def run_manual_kl_sweep():
                 },
             )
         print(
-            f"Manual run {idx + 1} done: best_optim={best_optim:.4f}, "
+            f"Manual run {idx + 1} done: best_log_optim={info['best_log_optim']:.4f}, "
+            f"best_optim={best_optim:.6f}, "
             f"test_acc(best_optim)={test_acc:.2f}%"
         )
 

@@ -87,10 +87,15 @@ def main():
     if not rows:
         raise RuntimeError(f"No rows found in {args.eval_csv}")
 
+    # Use log-space optim metric when available (numerically stable).
+    use_log_optim = all(row.get("best_log_optim", "") not in ("", None) for row in rows)
+    optim_key = "best_log_optim" if use_log_optim else "best_optim_value"
+    optim_label = "Best log_optim (trial)" if use_log_optim else "Best optim_value (trial)"
+
     # Filter rows that have all needed values.
     filtered = []
     for row in rows:
-        required = ["best_val_acc", "best_optim_value", "test_acc_valSel", "test_acc_optimSel"]
+        required = ["best_val_acc", optim_key, "test_acc_valSel", "test_acc_optimSel"]
         if any(row.get(k, "") in ("", None) for k in required):
             continue
         filtered.append(row)
@@ -98,7 +103,7 @@ def main():
         raise RuntimeError("No valid rows with required columns for plotting.")
 
     best_val_acc = _to_array(filtered, "best_val_acc")
-    best_optim_value = _to_array(filtered, "best_optim_value")
+    best_optim_metric = _to_array(filtered, optim_key)
     test_acc_val_sel = _to_array(filtered, "test_acc_valSel")
     test_acc_optim_sel = _to_array(filtered, "test_acc_optimSel")
     selection_gain = test_acc_optim_sel - test_acc_val_sel
@@ -116,9 +121,9 @@ def main():
 
     _scatter(
         axes[1],
-        best_optim_value,
+        best_optim_metric,
         test_acc_optim_sel,
-        "Best optim_value (trial)",
+        optim_label,
         "Test acc @ optim selector (%)",
         "Optim Selector Predictiveness",
     )

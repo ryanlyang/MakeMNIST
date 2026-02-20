@@ -45,17 +45,17 @@ python -u mnist/run_decoy_param_optuna.py \
   --manual-kl-sweep \
   --png-root "${DATA_PATH}" \
   --gt-path "${GT_PATH}" \
-  --beta 0.1 \
+  --beta 10 \
   --manual-attention-epoch 15 \
   --manual-lr 1e-3 \
   --manual-lr2 5e-3 \
   --manual-lr2-mult 0.1 \
   --manual-kl-min 0.01 \
   --manual-kl-max 100.0 \
-  --manual-num-points 50 \
+  --manual-num-points 10 \
   --kl-incr-fixed 0.0 \
   --val-saliency igrad \
-  --val-metric rev_kl \
+  --val-metric fwd_kl \
   --selector-start attention \
   --save-trial-checkpoints \
   --trial-artifacts-dir "${ARTIFACT_DIR}" \
