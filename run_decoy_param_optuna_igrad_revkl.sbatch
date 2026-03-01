@@ -45,6 +45,8 @@ python -u mnist/run_decoy_param_optuna.py \
   --beta 10 \
   --val-saliency igrad \
   --val-metric fwd_kl \
+  --checkpoint-selector val_acc \
+  --selector-start attention \
   --n-trials 10 \
   --n-seeds 5 \
   --objective-seed "${OBJECTIVE_SEED}" \
