@@ -97,6 +97,9 @@ parser.add_argument("--trial-summary-csv", type=str, default=None,
 parser.add_argument("--selector-start", type=str, default="attention",
                     choices=["attention", "all"],
                     help="Epoch eligibility for checkpoint selectors.")
+parser.add_argument("--checkpoint-selector", type=str, default="optim",
+                    choices=["optim", "val_acc"],
+                    help="Checkpoint selector used for trial objective and final test checkpoint.")
 parser.add_argument("--skip-phase2", action="store_true", default=False,
                     help="Skip Phase 2 seed reruns (useful for trial-scatter sweeps).")
 parser.add_argument("--kl-lambda-min", type=float, default=1.0)
@@ -389,6 +392,9 @@ def append_trial_summary_row(csv_path, row):
         "best_log_optim",
         "best_optim_value",
         "best_optim_epoch",
+        "selected_selector",
+        "selected_epoch",
+        "selected_value",
         "ckpt_val_path",
         "ckpt_optim_path",
     ]
@@ -628,7 +634,10 @@ def run_training(seed, kl_lambda, kl_incr, attention_epoch, lr, lr2, lr2_mult,
 
         # Report to Optuna (no pruning)
         if trial is not None:
-            trial.report(best_log_optim, epoch)
+            if args.checkpoint_selector == "val_acc":
+                trial.report(best_val_acc, epoch)
+            else:
+                trial.report(best_log_optim, epoch)
 
     if best_val_weights is None:
         best_val_acc = last_val_acc
@@ -641,8 +650,19 @@ def run_training(seed, kl_lambda, kl_incr, attention_epoch, lr, lr2, lr2_mult,
         best_optim_epoch = epochs
         best_optim_weights = deepcopy(model.state_dict())
 
-    # -- Test with best-optim checkpoint ----------------------------------
-    model.load_state_dict(best_optim_weights)
+    # -- Test with selected checkpoint ----------------------------------
+    if args.checkpoint_selector == "val_acc":
+        selected_name = "best_val_acc"
+        selected_epoch = best_val_epoch
+        selected_value = best_val_acc
+        selected_weights = best_val_weights
+    else:
+        selected_name = "best_log_optim"
+        selected_epoch = best_optim_epoch
+        selected_value = best_log_optim
+        selected_weights = best_optim_weights
+
+    model.load_state_dict(selected_weights)
 
     model.eval()
     correct = 0
@@ -656,8 +676,16 @@ def run_training(seed, kl_lambda, kl_incr, attention_epoch, lr, lr2, lr2_mult,
     test_acc = 100.0 * correct / total
 
     if verbose:
-        print(f"  >> best log_optim = {best_log_optim:.4f}, best optim_value = {best_optim:.6f},  "
-              f"test_acc @ best_optim = {test_acc:.1f}%")
+        print(
+            f"  >> best_val_acc={best_val_acc:.4f} (epoch {best_val_epoch}), "
+            f"best_log_optim={best_log_optim:.4f} (epoch {best_optim_epoch})"
+        )
+        if args.checkpoint_selector == "val_acc":
+            print(f"  >> selected checkpoint: val_acc @ epoch {selected_epoch}, "
+                  f"test_acc={test_acc:.1f}%")
+        else:
+            print(f"  >> selected checkpoint: log_optim @ epoch {selected_epoch}, "
+                  f"test_acc={test_acc:.1f}%")
 
     info = {
         "best_val_acc": float(best_val_acc),
@@ -665,6 +693,9 @@ def run_training(seed, kl_lambda, kl_incr, attention_epoch, lr, lr2, lr2_mult,
         "best_log_optim": float(best_log_optim),
         "best_optim_value": float(best_optim),
         "best_optim_epoch": int(best_optim_epoch),
+        "selected_selector": selected_name,
+        "selected_epoch": int(selected_epoch),
+        "selected_value": float(selected_value),
         "selector_start_mode": args.selector_start,
         "selector_start_epoch": int(selector_start_epoch),
         "ckpt_val_path": ckpt_val_path or "",
@@ -677,13 +708,25 @@ def run_training(seed, kl_lambda, kl_incr, attention_epoch, lr, lr2, lr2_mult,
 # =============================================================================
 #  Phase 1: Optuna sweep
 # =============================================================================
+def suggest_float_or_const(trial, name, low, high, log=True):
+    if low == high:
+        return float(trial.suggest_categorical(name, [float(low)]))
+    return trial.suggest_float(name, low, high, log=log)
+
+
+def suggest_int_or_const(trial, name, low, high):
+    if low == high:
+        return int(trial.suggest_categorical(name, [int(low)]))
+    return trial.suggest_int(name, low, high)
+
+
 def objective(trial):
-    kl_lambda = trial.suggest_float("kl_lambda", args.kl_lambda_min, args.kl_lambda_max, log=True)
+    kl_lambda = suggest_float_or_const(trial, "kl_lambda", args.kl_lambda_min, args.kl_lambda_max, log=True)
     kl_incr = args.kl_incr_fixed
-    attention_epoch = trial.suggest_int("attention_epoch", args.attention_epoch_min, args.attention_epoch_max)
-    lr = trial.suggest_float("lr", args.lr_min, args.lr_max, log=True)
-    lr2 = trial.suggest_float("lr2", args.lr2_min, args.lr2_max, log=True)
-    lr2_mult = trial.suggest_float("lr2_mult", args.lr2_mult_min, args.lr2_mult_max, log=True)
+    attention_epoch = suggest_int_or_const(trial, "attention_epoch", args.attention_epoch_min, args.attention_epoch_max)
+    lr = suggest_float_or_const(trial, "lr", args.lr_min, args.lr_max, log=True)
+    lr2 = suggest_float_or_const(trial, "lr2", args.lr2_min, args.lr2_max, log=True)
+    lr2_mult = suggest_float_or_const(trial, "lr2_mult", args.lr2_mult_min, args.lr2_mult_max, log=True)
 
     print(f"\n{'='*60}")
     print(f"Trial {trial.number}: kl_lambda={kl_lambda:.2f}, kl_incr={kl_incr:.2f} (fixed), "
@@ -721,14 +764,21 @@ def objective(trial):
                 "best_log_optim": info["best_log_optim"],
                 "best_optim_value": info["best_optim_value"],
                 "best_optim_epoch": info["best_optim_epoch"],
+                "selected_selector": info["selected_selector"],
+                "selected_epoch": info["selected_epoch"],
+                "selected_value": info["selected_value"],
                 "ckpt_val_path": info["ckpt_val_path"],
                 "ckpt_optim_path": info["ckpt_optim_path"],
             },
         )
     print(
-        f"Trial {trial.number} finished: log_optim={info['best_log_optim']:.4f}, "
-        f"optim={best_optim:.6f}, test_acc={test_acc:.1f}%"
+        f"Trial {trial.number} finished: val_acc={info['best_val_acc']:.4f}, "
+        f"log_optim={info['best_log_optim']:.4f}, "
+        f"selected={info['selected_selector']}@{info['selected_epoch']}, "
+        f"test_acc={test_acc:.1f}%"
     )
+    if args.checkpoint_selector == "val_acc":
+        return info["best_val_acc"]
     return info["best_log_optim"]
 
 
@@ -803,6 +853,9 @@ def run_manual_kl_sweep():
                     "best_log_optim": info["best_log_optim"],
                     "best_optim_value": info["best_optim_value"],
                     "best_optim_epoch": info["best_optim_epoch"],
+                    "selected_selector": info["selected_selector"],
+                    "selected_epoch": info["selected_epoch"],
+                    "selected_value": info["selected_value"],
                     "ckpt_val_path": info["ckpt_val_path"],
                     "ckpt_optim_path": info["ckpt_optim_path"],
                 },
