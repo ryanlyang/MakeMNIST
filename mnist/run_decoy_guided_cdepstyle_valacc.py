@@ -284,12 +284,6 @@ def train_one_seed(args, seed, full_train_guided, full_train_plain, true_test, d
                 best_val_loss = val_loss
                 best_epoch = epoch
                 best_weights = deepcopy(model.state_dict())
-        else:
-            # Fallback if attention epoch is late.
-            best_val_acc = val_acc
-            best_val_loss = val_loss
-            best_epoch = epoch
-            best_weights = deepcopy(model.state_dict())
 
         if args.print_every > 0 and (epoch % args.print_every == 0 or epoch == args.epochs):
             print(
@@ -298,6 +292,13 @@ def train_one_seed(args, seed, full_train_guided, full_train_plain, true_test, d
                 f"val_loss={val_loss:.4f} val_acc={val_acc:.2f}% "
                 f"guided={'on' if attention_active else 'off'}"
             )
+
+    if best_weights is None:
+        # Safety fallback when attention_epoch > epochs.
+        best_val_acc = val_acc
+        best_val_loss = val_loss
+        best_epoch = args.epochs
+        best_weights = deepcopy(model.state_dict())
 
     model.load_state_dict(best_weights)
     test_loss, test_acc = evaluate_classification(model, test_loader, device)
