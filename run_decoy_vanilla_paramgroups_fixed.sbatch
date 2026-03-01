@@ -18,8 +18,7 @@ LOG_DIR="/home/ryreu/guided_cnn/logsMNIST"
 DATA_PATH="${REPO_ROOT}/data/DecoyMNIST_png"
 
 # Fixed hyperparameters from your trial.
-BASE_LR=0.031210590691245817
-CLASSIFIER_LR=0.0008517287145349147
+LR=0.031210590691245817
 MOMENTUM=0.8914661939990524
 
 mkdir -p "${LOG_DIR}"
@@ -41,6 +40,6 @@ python -u mnist/run_decoy_vanilla_paramgroups_fixed.py \
   --png-root "${DATA_PATH}" \
   --epochs 30 \
   --n-seeds 5 \
-  --base-lr "${BASE_LR}" \
-  --classifier-lr "${CLASSIFIER_LR}" \
+  --val-frac 0.1 \
+  --lr "${LR}" \
   --momentum "${MOMENTUM}"

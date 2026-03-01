@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Vanilla DecoyMNIST CNN with two LR parameter groups and fixed hyperparameters.
+"""Vanilla DecoyMNIST CNN with a single LR and fixed hyperparameters.
 
 Runs N seeds and reports mean/std of:
 - best validation accuracy
@@ -49,20 +49,6 @@ def set_seed(seed):
     torch.cuda.manual_seed(seed)
 
 
-def get_param_groups(model, base_lr, classifier_lr):
-    base_params = []
-    classifier_params = []
-    for name, p in model.named_parameters():
-        if name.startswith("fc2.") or ".fc2." in name:
-            classifier_params.append(p)
-        else:
-            base_params.append(p)
-    return [
-        {"params": base_params, "lr": base_lr},
-        {"params": classifier_params, "lr": classifier_lr},
-    ]
-
-
 @torch.no_grad()
 def evaluate(model, loader, device):
     model.eval()
@@ -102,7 +88,8 @@ def train_one_seed(args, seed, full_train, test_dataset, device, loader_kwargs):
 
     model = Net().to(device)
     optimizer = optim.SGD(
-        get_param_groups(model, args.base_lr, args.classifier_lr),
+        model.parameters(),
+        lr=args.lr,
         momentum=args.momentum,
         weight_decay=args.weight_decay,
     )
@@ -137,15 +124,14 @@ def train_one_seed(args, seed, full_train, test_dataset, device, loader_kwargs):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Vanilla DecoyMNIST CNN with base/classifier LR groups")
+    parser = argparse.ArgumentParser(description="Vanilla DecoyMNIST CNN with single LR")
     parser.add_argument("--png-root", type=str, default=None)
     parser.add_argument("--epochs", type=int, default=30)
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--test-batch-size", type=int, default=1000)
     parser.add_argument("--val-frac", type=float, default=0.16)
     parser.add_argument("--weight-decay", type=float, default=1e-4)
-    parser.add_argument("--base-lr", type=float, default=0.031210590691245817)
-    parser.add_argument("--classifier-lr", type=float, default=0.0008517287145349147)
+    parser.add_argument("--lr", type=float, default=0.031210590691245817)
     parser.add_argument("--momentum", type=float, default=0.8914661939990524)
     parser.add_argument("--n-seeds", type=int, default=5)
     parser.add_argument("--seed-start", type=int, default=0)
@@ -171,7 +157,7 @@ def main():
     print(f"png_root={png_root}")
     print(f"train={len(full_train)} test={len(test_dataset)} val_frac={args.val_frac}")
     print(
-        f"base_lr={args.base_lr} classifier_lr={args.classifier_lr} "
+        f"lr={args.lr} "
         f"momentum={args.momentum} weight_decay={args.weight_decay}"
     )
 
