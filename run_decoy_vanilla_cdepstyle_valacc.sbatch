@@ -1,0 +1,43 @@
+#!/bin/bash -l
+#SBATCH --account=reu-aisocial
+#SBATCH --partition=debug
+#SBATCH --gres=gpu:1
+#SBATCH --time=12:00:00
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=32G
+#SBATCH --output=/home/ryreu/guided_cnn/logsMNIST/decoy_vanilla_cdepstyle_valacc_%j.out
+#SBATCH --error=/home/ryreu/guided_cnn/logsMNIST/decoy_vanilla_cdepstyle_valacc_%j.err
+#SBATCH --signal=TERM@120
+
+set -Eeuo pipefail
+
+REPO_ROOT="/home/ryreu/guided_cnn/MNIST_AGAIN/MakeMNIST"
+CONDA_ENV="learntolook"
+LOG_DIR="/home/ryreu/guided_cnn/logsMNIST"
+DATA_PATH="${REPO_ROOT}/data/DecoyMNIST_png"
+
+mkdir -p "${LOG_DIR}"
+
+source ~/miniconda3/etc/profile.d/conda.sh
+conda activate "${CONDA_ENV}"
+
+export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:-1}"
+export MKL_NUM_THREADS="${SLURM_CPUS_PER_TASK:-1}"
+export NUMEXPR_NUM_THREADS="${SLURM_CPUS_PER_TASK:-1}"
+export PYTHONNOUSERSITE=1
+
+cd "${REPO_ROOT}"
+
+echo "[$(date)] Host: $(hostname)"
+which python
+
+python -u mnist/run_decoy_vanilla_cdepstyle_valacc.py \
+  --png-root "${DATA_PATH}" \
+  --epochs 5 \
+  --batch-size 64 \
+  --test-batch-size 1000 \
+  --lr 0.001 \
+  --weight-decay 1e-4 \
+  --patience 2 \
+  --n-seeds 5
