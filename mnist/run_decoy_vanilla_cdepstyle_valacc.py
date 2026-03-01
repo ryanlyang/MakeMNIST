@@ -100,7 +100,6 @@ def train_one_seed(args, seed, full_train, true_test, device, loader_kwargs):
     best_val_acc = -1.0
     best_val_loss = float("inf")
     best_epoch = -1
-    bad_epochs = 0
 
     for epoch in range(1, args.epochs + 1):
         model.train()
@@ -120,11 +119,6 @@ def train_one_seed(args, seed, full_train, true_test, device, loader_kwargs):
             best_val_loss = val_loss
             best_epoch = epoch
             best_weights = deepcopy(model.state_dict())
-            bad_epochs = 0
-        else:
-            bad_epochs += 1
-            if bad_epochs > args.patience:
-                break
 
         if args.print_every > 0 and (epoch % args.print_every == 0 or epoch == args.epochs):
             print(
@@ -152,7 +146,6 @@ def main():
     parser.add_argument("--test-batch-size", type=int, default=1000)
     parser.add_argument("--lr", type=float, default=0.001)
     parser.add_argument("--weight-decay", type=float, default=1e-4)
-    parser.add_argument("--patience", type=int, default=2)
     parser.add_argument("--n-seeds", type=int, default=5)
     parser.add_argument("--seed-start", type=int, default=0)
     parser.add_argument("--num-workers", type=int, default=1)
@@ -178,7 +171,7 @@ def main():
     print(f"train={len(full_train)} test={len(true_test)} split=90/10")
     print(
         f"optimizer=Adam lr={args.lr} weight_decay={args.weight_decay} "
-        f"epochs={args.epochs} patience={args.patience}"
+        f"epochs={args.epochs}"
     )
 
     rows = []

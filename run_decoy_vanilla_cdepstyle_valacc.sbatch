@@ -34,10 +34,9 @@ which python
 
 python -u mnist/run_decoy_vanilla_cdepstyle_valacc.py \
   --png-root "${DATA_PATH}" \
-  --epochs 18 \
+  --epochs 19 \
   --batch-size 64 \
   --test-batch-size 1000 \
   --lr 0.031210590691245817 \
   --weight-decay 1e-4 \
-  --patience 2 \
   --n-seeds 5
