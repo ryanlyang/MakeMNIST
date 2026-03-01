@@ -17,7 +17,7 @@ CONDA_ENV="learntolook"
 LOG_DIR="/home/ryreu/guided_cnn/logsMNIST"
 GT_PATH="/home/ryreu/guided_cnn/MNIST_AGAIN/DecoyGen/LearningToLook/code/WeCLIPPlus/results_decoy_mnist/val/prediction_cmap"
 
-ATTENTION_EPOCH=73
+ATTENTION_EPOCH=7
 KL_LAMBDA=495.60509512105125
 KL_INCR=0.0
 BASE_LR=5.721272343067835e-05
@@ -51,7 +51,7 @@ echo "Objective seed: ${OBJECTIVE_SEED}"
 
 python -u mnist/run_decoy_param_optuna.py \
   --gt-path "${GT_PATH}" \
-  --epochs 200 \
+  --epochs 19 \
   --beta 10 \
   --val-saliency igrad \
   --val-metric fwd_kl \
