@@ -37,6 +37,6 @@ python -u mnist/run_decoy_vanilla_cdepstyle_valacc.py \
   --epochs 19 \
   --batch-size 64 \
   --test-batch-size 1000 \
-  --lr 0.031210590691245817 \
+  --lr 0.001 \
   --weight-decay 1e-4 \
   --n-seeds 5
