@@ -21,7 +21,9 @@ REPO_ROOT="/home/ryreu/guided_cnn/MNIST_AGAIN/MakeMNIST"
 CONDA_ENV="learntolook"
 LOG_DIR="/home/ryreu/guided_cnn/logsMNIST"
 DATA_PATH="${REPO_ROOT}/data/DecoyMNIST_png"
-GT_PATH="/home/ryreu/guided_cnn/MNIST_AGAIN/DecoyGen/LearningToLook/code/WeCLIPPlus/results_decoy_mnist/val/prediction_cmap"
+GT_PATH_WECLIP="/home/ryreu/guided_cnn/MNIST_AGAIN/DecoyGen/LearningToLook/code/WeCLIPPlus/results_decoy_mnist/val/prediction_cmap"
+GT_PATH_OPENAI_XCIT="/home/ryreu/guided_cnn/MNIST_AGAIN/DecoyGen/LearningToLook/code/WeCLIPPlus/results_decoy_mnist_openai_xcit/val/prediction_cmap"
+GT_PATH_OPENCLIP="/home/ryreu/guided_cnn/MNIST_AGAIN/DecoyGen/LearningToLook/code/WeCLIPPlus/results_decoy_mnist_openclip/val/prediction_cmap"
 
 # Fixed run settings
 EPOCHS=19
@@ -49,19 +51,29 @@ echo "[$(date)] Host: $(hostname)"
 which python
 echo "Epoch mapping: ${ATTN_SRC}/${SRC_EPOCHS} -> attention_epoch=${ATTENTION_EPOCH} for epochs=${EPOCHS}"
 echo "Data: ${DATA_PATH}"
-echo "Masks: ${GT_PATH}"
 
-python -u mnist/run_decoy_guided_cdepstyle_valacc.py \
-  --png-root "${DATA_PATH}" \
-  --gt-path "${GT_PATH}" \
-  --epochs "${EPOCHS}" \
-  --val-frac 0.1 \
-  --batch-size 64 \
-  --test-batch-size 1000 \
-  --weight-decay 1e-4 \
-  --lr "${LR}" \
-  --attention-epoch "${ATTENTION_EPOCH}" \
-  --kl-lambda "${KL_LAMBDA}" \
-  --kl-incr "${KL_INCR}" \
-  --n-seeds 5 \
-  --split-seed 0
+GT_NAMES=("WeCLIP" "OpenAI_XCiT" "OpenCLIP")
+GT_PATHS=("${GT_PATH_WECLIP}" "${GT_PATH_OPENAI_XCIT}" "${GT_PATH_OPENCLIP}")
+
+for i in "${!GT_NAMES[@]}"; do
+  echo
+  echo "============================================================"
+  echo "Running guided Decoy for GT source: ${GT_NAMES[$i]}"
+  echo "Masks: ${GT_PATHS[$i]}"
+  echo "============================================================"
+
+  python -u mnist/run_decoy_guided_cdepstyle_valacc.py \
+    --png-root "${DATA_PATH}" \
+    --gt-path "${GT_PATHS[$i]}" \
+    --epochs "${EPOCHS}" \
+    --val-frac 0.1 \
+    --batch-size 64 \
+    --test-batch-size 1000 \
+    --weight-decay 1e-4 \
+    --lr "${LR}" \
+    --attention-epoch "${ATTENTION_EPOCH}" \
+    --kl-lambda "${KL_LAMBDA}" \
+    --kl-incr "${KL_INCR}" \
+    --n-seeds 5 \
+    --split-seed 0
+done
